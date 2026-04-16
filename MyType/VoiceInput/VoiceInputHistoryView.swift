@@ -107,6 +107,13 @@ struct VoiceInputHistoryView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
+                            Label(
+                                record.language,
+                                systemImage: "globe"
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
                             if record.lightPolished == true {
                                 Label("Light Polish", systemImage: "sparkles")
                                     .font(.caption)

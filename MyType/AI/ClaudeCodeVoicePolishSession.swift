@@ -27,6 +27,9 @@ actor ClaudeCodeVoicePolishSession {
     private var seededPrompt: String?
     private var seededModel: String?
     private var seededEffort: String?
+    private var turnCount = 0
+    /// Respawn after this many turns to keep context size bounded.
+    private let maxTurnsBeforeRespawn = 100
 
     // MARK: - Public API
 
@@ -39,16 +42,18 @@ actor ClaudeCodeVoicePolishSession {
         model: String,
         effort: String = "low"
     ) async throws -> String {
-        if process?.isRunning != true || seededPrompt != seedPrompt || seededModel != model || seededEffort != effort {
+        if process?.isRunning != true || seededPrompt != seedPrompt || seededModel != model || seededEffort != effort || turnCount >= maxTurnsBeforeRespawn {
             tearDown()
             try spawnProcess(model: model, effort: effort)
             try await sendAndDiscard(seedPrompt)
             seededPrompt = seedPrompt
             seededModel = model
             seededEffort = effort
+            turnCount = 0
         }
 
         do {
+            turnCount += 1
             return try await sendAndCollect(text)
         } catch {
             logger.warning("turn failed, tearing down: \(error.localizedDescription, privacy: .public)")
@@ -127,6 +132,20 @@ actor ClaudeCodeVoicePolishSession {
         seededPrompt = nil
         seededModel = nil
         seededEffort = nil
+        turnCount = 0
+        cleanupSessionFiles()
+    }
+
+    /// Remove leftover session .jsonl files that Claude Code creates
+    /// despite --no-session-persistence (only contains metadata titles).
+    private func cleanupSessionFiles() {
+        let scratchDir = claudeCodeScratchDir("MyTypeClaudeVoicePolish")
+        let projectPath = scratchDir.path
+            .replacingOccurrences(of: "/", with: "-")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        let sessionsDir = FileManager.default.homeDirectoryForCurrentUser
+            .appending(path: ".claude/projects/\(projectPath)")
+        try? FileManager.default.removeItem(at: sessionsDir)
     }
 
     // MARK: - Turn I/O
