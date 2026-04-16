@@ -1,0 +1,44 @@
+# Finder
+.DS_Store
+
+# Xcode - User files
+xcuserdata/
+
+**/*.xcodeproj/project.xcworkspace/*
+!**/*.xcodeproj/project.xcworkspace/xcshareddata
+
+**/*.xcodeproj/project.xcworkspace/xcshareddata/*
+!**/*.xcodeproj/project.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
+
+# Build artifacts
+DerivedData/
+build/
+*.dmg
+
+# IDE
+.vscode/
+
+# macOS
+.AppleDouble
+.LSOverride
+
+# Audio files (user data, not source)
+*.mp3
+*.m4a
+*.wav
+
+# Claude Code
+.claude/
+CLAUDE.md
+
+# Skills
+skills/
+skills-lock.json
+
+# gstack
+.gstack/
+
+# Design docs & HTML prototypes
+docs/
+*.html
+screenshots/
