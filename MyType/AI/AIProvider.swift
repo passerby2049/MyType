@@ -166,32 +166,6 @@ struct AIProvider {
         }
     }
 
-    static func translate(
-        text: String,
-        to targetLanguage: String = "中文",
-        model: String
-    ) -> AsyncThrowingStream<String, Error> {
-        stream(
-            prompt: "将以下文本翻译成\(targetLanguage)，只输出翻译结果，不要解释：\n\n\(text)",
-            model: model
-        )
-    }
-
-    static func availableModels() async -> [String] {
-        return uniqueModels(
-            claudeCodeModels + anthropicModels + openRouterModels + googleAIModels
-        )
-    }
-
-    private static func uniqueModels(_ models: [String]) -> [String] {
-        var seen = Set<String>()
-        var result: [String] = []
-        for model in models where seen.insert(model).inserted {
-            result.append(model)
-        }
-        return result
-    }
-
     static func errorMessage(from responseBody: String) -> String? {
         guard let data = responseBody.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
