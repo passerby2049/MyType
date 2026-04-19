@@ -60,6 +60,16 @@ final class VoiceInputStore {
         logger.info("Added voice input record: \(record.id)")
     }
 
+    /// Mutate an existing record in place and persist. No-op if the id
+    /// no longer exists (e.g. the user deleted it while the late LLM
+    /// polish was still flying in).
+    func update(_ id: UUID, mutate: (inout VoiceInputRecord) -> Void) {
+        guard let index = records.firstIndex(where: { $0.id == id }) else { return }
+        mutate(&records[index])
+        save()
+        logger.info("Updated voice input record: \(id)")
+    }
+
     /// Delete a record by ID, removing its audio file too.
     func delete(_ id: UUID) {
         guard let index = records.firstIndex(where: { $0.id == id }) else { return }

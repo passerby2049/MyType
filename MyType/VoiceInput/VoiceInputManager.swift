@@ -262,8 +262,11 @@ final class VoiceInputManager {
                     )
                     VoiceInputStore.shared.add(record)
                 } else {
-                    // Timeout — inject raw text now, polish in background
-                    logger.warning("LLM polish timed out after 8s — injecting raw text first")
+                    // Timeout (or LLM errored): inject raw text now. Keep
+                    // awaiting the LLM in the background — when/if it
+                    // returns, update history so the polished version
+                    // isn't lost just because we missed the 8s window.
+                    logger.warning("LLM polish didn't return within 8s — injecting raw text first")
 
                     let targetApp = await TextInjector.inject(
                         optimizedText,
@@ -276,10 +279,33 @@ final class VoiceInputManager {
                         language: VoiceInputLanguage.current.localeIdentifier,
                         duration: recordingDuration, targetApp: targetApp,
                         wasRewritten: false, lightPolished: lightPolish,
-                        transcriptionTime: sttTime, llmPolishTime: llmTime,
+                        transcriptionTime: sttTime, llmPolishTime: nil,
                         llmModel: model
                     )
                     VoiceInputStore.shared.add(record)
+
+                    Task { [logger] in
+                        do {
+                            let polished = try await llmTask.value
+                            let totalTime = Date().timeIntervalSince(llmStart)
+                            let wasRewritten = polished != optimizedText
+                            logger.info("LLM polish late result in \(String(format: "%.1f", totalTime))s — updating history")
+                            VoiceInputStore.shared.update(id) { rec in
+                                rec.text = polished
+                                rec.wasRewritten = wasRewritten
+                                rec.llmPolishTime = totalTime
+                            }
+                        } catch is CancellationError {
+                            // Parent was cancelled — the raw-text record is
+                            // already saved; nothing more to do.
+                        } catch {
+                            let totalTime = Date().timeIntervalSince(llmStart)
+                            logger.error("LLM polish failed after \(String(format: "%.1f", totalTime))s: \(error.localizedDescription, privacy: .public)")
+                            VoiceInputStore.shared.update(id) { rec in
+                                rec.llmPolishTime = totalTime
+                            }
+                        }
+                    }
                 }
             } else {
                 logger.info("LLM polish skipped (toggle off in Voice Input Settings)")

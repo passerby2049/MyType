@@ -6,17 +6,17 @@ import Foundation
 /// A single voice input record, completely decoupled from Story.
 struct VoiceInputRecord: Codable, Identifiable {
     let id: UUID
-    let text: String              // Final text (after rewrite or raw)
+    var text: String              // Final text (after rewrite or raw)
     let rawTranscript: String     // Raw transcript (before rewrite)
     let audioFileName: String     // Audio file name (relative path under audio/)
     let language: String          // Detected language
     let duration: TimeInterval    // Recording duration in seconds
     let targetApp: String?        // Name of the app text was injected into
     let createdAt: Date
-    let wasRewritten: Bool        // Whether LLM rewrite was applied
+    var wasRewritten: Bool        // Whether LLM rewrite was applied
     let lightPolished: Bool?      // Whether light-polish mode was on (nil = old records)
     let transcriptionTime: TimeInterval?  // Seconds spent on STT
-    let llmPolishTime: TimeInterval?      // Seconds spent on LLM polish
+    var llmPolishTime: TimeInterval?      // Seconds spent on LLM polish
     let llmModel: String?                 // Model used for LLM polish (e.g. "cc-opus")
 
     init(
