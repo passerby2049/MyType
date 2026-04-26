@@ -82,17 +82,6 @@ final class VoiceInputStore {
         logger.info("Deleted voice input record: \(id)")
     }
 
-    /// Delete all records and their audio files.
-    func deleteAll() {
-        for record in records {
-            let audioURL = Self.audioDirectory.appending(path: record.audioFileName)
-            try? FileManager.default.removeItem(at: audioURL)
-        }
-        records.removeAll()
-        save()
-        logger.info("Deleted all voice input records")
-    }
-
     /// Full path to a record's audio file.
     func audioURL(for record: VoiceInputRecord) -> URL {
         Self.audioDirectory.appending(path: record.audioFileName)

@@ -64,9 +64,6 @@ final class GlobalHotkeyMonitor {
     @ObservationIgnored nonisolated(unsafe) private var globalMonitor: Any?
     @ObservationIgnored nonisolated(unsafe) private var localMonitor: Any?
 
-    /// Original value of AppleFnUsageType so we can restore it on stop.
-    private var originalFnUsageType: Int?
-
     /// Key for the fn/Globe key behavior in System Preferences.
     private static let fnUsageDomain = "com.apple.HIToolbox" as CFString
     private static let fnUsageKey = "AppleFnUsageType" as CFString
@@ -123,43 +120,18 @@ final class GlobalHotkeyMonitor {
         }
     }
 
-    /// Stop monitoring.
-    func stop() {
-        if let tap = eventTap {
-            CGEvent.tapEnable(tap: tap, enable: false)
-            if let source = runLoopSource {
-                CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
-            }
-            CFMachPortInvalidate(tap)
-        }
-        if let m = globalMonitor { NSEvent.removeMonitor(m) }
-        if let m = localMonitor { NSEvent.removeMonitor(m) }
-        eventTap = nil
-        runLoopSource = nil
-        globalMonitor = nil
-        localMonitor = nil
-        fnIsDown = false
-        otherKeyDuringFn = false
-        isMonitoring = false
-
-        // Restore original fn key behavior
-        restoreSystemFnEmoji()
-
-        logger.info("Global hotkey monitor stopped")
-    }
-
     // MARK: - System fn Key Preference
 
-    /// Save the current fn key preference and set it to "Do Nothing" (0).
+    /// Set the fn key preference to "Do Nothing" so the system emoji
+    /// picker can't fire — it operates below CGEventTap and can't be
+    /// suppressed any other way.
     private func disableSystemFnEmoji() {
-        // Read current value
         let current = CFPreferencesCopyValue(
             Self.fnUsageKey, Self.fnUsageDomain,
             kCFPreferencesCurrentUser, kCFPreferencesCurrentHost
         )
-        originalFnUsageType = (current as? NSNumber)?.intValue
+        let previous = (current as? NSNumber)?.intValue ?? -1
 
-        // Set to 0 = Do Nothing
         CFPreferencesSetValue(
             Self.fnUsageKey, 0 as CFNumber,
             Self.fnUsageDomain,
@@ -169,23 +141,7 @@ final class GlobalHotkeyMonitor {
             Self.fnUsageDomain,
             kCFPreferencesCurrentUser, kCFPreferencesCurrentHost
         )
-        logger.info("Disabled system fn emoji picker (was: \(self.originalFnUsageType ?? -1))")
-    }
-
-    /// Restore the original fn key preference.
-    private func restoreSystemFnEmoji() {
-        guard let original = originalFnUsageType else { return }
-        CFPreferencesSetValue(
-            Self.fnUsageKey, original as CFNumber,
-            Self.fnUsageDomain,
-            kCFPreferencesCurrentUser, kCFPreferencesCurrentHost
-        )
-        CFPreferencesSynchronize(
-            Self.fnUsageDomain,
-            kCFPreferencesCurrentUser, kCFPreferencesCurrentHost
-        )
-        originalFnUsageType = nil
-        logger.info("Restored system fn emoji picker to \(original)")
+        logger.info("Disabled system fn emoji picker (was: \(previous))")
     }
 
     // MARK: - CGEventTap (preferred — can suppress emoji picker)

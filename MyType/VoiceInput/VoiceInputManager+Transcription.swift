@@ -4,12 +4,6 @@
 import AVFoundation
 import FluidAudio
 import Foundation
-import os
-
-private let logger = Logger(
-    subsystem: Bundle.main.bundleIdentifier ?? "MyType",
-    category: "VoiceInputManager"
-)
 
 extension VoiceInputManager {
 

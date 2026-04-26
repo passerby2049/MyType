@@ -31,16 +31,6 @@ enum VoiceInputEngineChoice: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var displayName: String {
-        switch self {
-        case .qwen3Int8: "FluidAudio Qwen3-ASR (int8, ~900MB)"
-        case .qwen3F32: "FluidAudio Qwen3-ASR (f32, ~1.75GB)"
-        case .parakeetV3: "Parakeet TDT v3 — Multilingual"
-        case .parakeetV2: "Parakeet TDT v2 — English Only"
-        case .appleSpeech: "Apple Speech (Built-in)"
-        }
-    }
-
     /// Which language(s) this engine actually handles well. Used by the
     /// settings view to filter the engine list based on the user's
     /// chosen input language. Qwen3 speaks Chinese + English natively,

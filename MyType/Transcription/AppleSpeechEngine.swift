@@ -1,18 +1,12 @@
 // Abstract:
-// Apple Speech engine -- wraps SpeechTranscriber/SpeechAnalyzer
-// into TranscriptionEngine protocol. This is the original
-// transcription backend extracted from SpokenWordTranscriber.
+// Apple Speech backend — wraps SpeechTranscriber/SpeechAnalyzer for the
+// AppleSpeech engine choice.
 
 import AVFoundation
 import Foundation
 import Speech
 
-final class AppleSpeechEngine: TranscriptionEngine {
-    let displayName = "Apple Speech"
-    let id = "apple-speech"
-
-    var isAvailable: Bool { true }
-
+final class AppleSpeechEngine {
     func prepare(
         locale: Locale,
         progressHandler: ((Double) -> Void)?

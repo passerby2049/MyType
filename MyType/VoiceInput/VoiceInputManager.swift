@@ -41,8 +41,6 @@ final class VoiceInputManager {
     let minimumRecordingDuration: TimeInterval = 0.35
     /// Maximum recording duration (safety valve).
     let recordingTimeout: TimeInterval = 600 // 10 minutes
-    /// Streaming update interval for audio level.
-    let streamingUpdateInterval: TimeInterval = 0.15
 
     // MARK: - Internal State
 

@@ -1,11 +1,21 @@
 // Abstract:
-// Shared types and helpers for Claude Code subprocess operations.
-// Used by both AIProvider.streamClaudeCode and
+// Shared types and helpers for the Claude Code subprocess used by
 // ClaudeCodeVoicePolishSession.
 
 import Foundation
 
 // MARK: - Claude Code Shared Helpers
+
+/// Locate the `claude` binary across common install locations.
+func claudeCodeBinaryPath() -> String? {
+    let candidates = [
+        NSHomeDirectory() + "/.local/bin/claude",
+        "/opt/homebrew/bin/claude",
+        "/usr/local/bin/claude",
+        NSHomeDirectory() + "/.claude/local/claude",
+    ]
+    return candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) })
+}
 
 /// Typed errors for Claude Code subprocess operations.
 enum ClaudeCodeError: LocalizedError {
@@ -93,8 +103,6 @@ func claudeCodeScratchDir(_ name: String = "MyTypeClaude") -> URL {
 /// Bridge `FileHandle.readabilityHandler` into an AsyncStream of
 /// `\n`-delimited lines. `FileHandle.bytes.lines` buffers subprocess
 /// pipes until EOF on macOS, so we can't use it.
-///
-/// Shared by `AIProvider.streamClaudeCode` and `ClaudeCodeVoicePolishSession`.
 func makeLineStream(from handle: FileHandle, label: String = "line-splitter") -> AsyncStream<String> {
     AsyncStream(bufferingPolicy: .unbounded) { continuation in
         let queue = DispatchQueue(label: "claude.\(label)")

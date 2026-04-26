@@ -16,26 +16,19 @@ enum VocabularyTermSource: String, Codable {
     case automatic  // System-learned from corrections (v2)
 }
 
-/// A vocabulary term with optional weight.
 struct VocabularyTerm: Codable, Identifiable, Hashable {
     var id: UUID
     var term: String
-    var weight: Double  // 0.0 - 1.0, higher = more emphasis
     var source: VocabularyTermSource
-    var createdAt: Date
 
     init(
         id: UUID = UUID(),
         term: String,
-        weight: Double = 1.0,
-        source: VocabularyTermSource = .manual,
-        createdAt: Date = .now
+        source: VocabularyTermSource = .manual
     ) {
         self.id = id
         self.term = term
-        self.weight = weight
         self.source = source
-        self.createdAt = createdAt
     }
 }
 
@@ -58,7 +51,7 @@ final class VocabularyStore {
     // MARK: - Public API
 
     /// Add a new term.
-    func add(_ term: String, weight: Double = 1.0) {
+    func add(_ term: String) {
         let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
@@ -67,7 +60,7 @@ final class VocabularyStore {
             $0.term.lowercased() == trimmed.lowercased()
         }) { return }
 
-        terms.append(VocabularyTerm(term: trimmed, weight: weight))
+        terms.append(VocabularyTerm(term: trimmed))
         save()
     }
 
@@ -75,42 +68,6 @@ final class VocabularyStore {
     func remove(_ id: UUID) {
         terms.removeAll { $0.id == id }
         save()
-    }
-
-    /// Update an existing term.
-    func update(_ id: UUID, term: String? = nil, weight: Double? = nil) {
-        guard let index = terms.firstIndex(where: { $0.id == id }) else { return }
-        if let term {
-            terms[index].term = term
-        }
-        if let weight {
-            terms[index].weight = weight
-        }
-        save()
-    }
-
-    /// Generate the XML hints string for STT engines.
-    /// Format follows the spec's vocabulary_hints structure.
-    func generateHints() -> String {
-        guard !terms.isEmpty else { return "" }
-
-        let termsList = terms
-            .sorted { $0.weight > $1.weight }
-            .map(\.term)
-            .joined(separator: ", ")
-
-        return """
-        <vocabulary_hints>
-        <instruction>
-        Recognize these words and phrases accurately, preserving their spelling \
-        and casing when possible. Do not emit any term unless it is actually \
-        spoken in the audio.
-        </instruction>
-        <terms>
-        \(termsList)
-        </terms>
-        </vocabulary_hints>
-        """
     }
 
     // MARK: - Persistence

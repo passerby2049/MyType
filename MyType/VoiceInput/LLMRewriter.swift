@@ -17,9 +17,8 @@ enum LLMRewriter {
     // MARK: - UserDefaults Keys
 
     static let useLLMKey = "voiceInputUseLLM"
-    /// Voice-input LLM is configured independently from the app-wide
-    /// `defaultModel` (used by translation / reorganization). Empty
-    /// string means "never configured" and falls back to the hard default.
+    /// Persisted model selection. Empty string means "never configured"
+    /// and falls back to `defaultModel`.
     static let modelKey = "voiceInputLLMModel"
     /// When true, LLM also removes fillers (嗯/呃/啊/uh/um), stuttering,
     /// and lightly smooths awkward phrasing for fluency — minor tweaks

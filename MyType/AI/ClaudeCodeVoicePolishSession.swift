@@ -2,9 +2,7 @@
 // Long-lived `claude -p --input-format stream-json` subprocess dedicated
 // to voice-input polish. Seeds the system prompt ONCE, then reuses the
 // warm session for each polish turn — steady-state ~1.7s/request vs
-// ~8s/request for cold-spawn. Unrelated Claude Code paths (reorg,
-// translation) continue to use `AIProvider.streamClaudeCode` which
-// spawns fresh each call.
+// ~8s/request for cold-spawn.
 
 import Foundation
 import os
@@ -62,13 +60,10 @@ actor ClaudeCodeVoicePolishSession {
         }
     }
 
-    /// Best-effort shutdown. Normally unnecessary — child is reaped on app exit.
-    func shutdown() { tearDown() }
-
     // MARK: - Process Lifecycle
 
     private func spawnProcess(model: String, effort: String = "low") throws {
-        guard let binary = AIProvider.claudeCodeBinaryPath() else {
+        guard let binary = claudeCodeBinaryPath() else {
             throw ClaudeCodeError.binaryNotFound
         }
 

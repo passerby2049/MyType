@@ -149,6 +149,10 @@ struct AIProvider {
     /// provider uses its own default. Pass a low value (e.g. 0.1) for
     /// strict post-processing tasks like voice-input typo correction
     /// where creative rewriting would be a bug.
+    ///
+    /// Claude Code (`cc-*` models) is not routed here — callers must
+    /// dispatch to `ClaudeCodeVoicePolishSession` themselves to reuse
+    /// the warm subprocess.
     static func stream(
         prompt: String,
         model: String,
@@ -162,7 +166,7 @@ struct AIProvider {
         case .googleAI:
             return streamGoogleAI(prompt: prompt, model: model, temperature: temperature)
         case .claudeCode:
-            return streamClaudeCode(prompt: prompt, model: model)
+            preconditionFailure("Claude Code models must go through ClaudeCodeVoicePolishSession, not AIProvider.stream")
         }
     }
 
