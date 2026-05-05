@@ -277,7 +277,8 @@ private struct AIPolishSettingsView: View {
 
     @AppStorage(LLMRewriter.useLLMKey) private var useLLM: Bool = false
     @AppStorage(LLMRewriter.modelKey) private var llmModel: String = ""
-    @AppStorage(LLMRewriter.lightPolishKey) private var lightPolish: Bool = false
+    @AppStorage(LLMRewriter.polishModeKey) private var polishModeRaw: String =
+        LLMRewriter.polishMode.rawValue
     @AppStorage(LLMRewriter.effortKey) private var effort: String = LLMRewriter.defaultEffort
 
     @State private var llmProvider: AIProvider.Provider =
@@ -297,8 +298,12 @@ private struct AIPolishSettingsView: View {
                 Toggle("Polish with LLM", isOn: $useLLM)
 
                 if useLLM {
-                    Toggle("Light Polish", isOn: $lightPolish)
-                        .help("Remove fillers (嗯、呃、啊), stuttering, and lightly smooth phrasing")
+                    Picker("Polish Mode", selection: $polishModeRaw) {
+                        Text("Strict — STT fixes only").tag(LLMRewriter.PolishMode.strict.rawValue)
+                        Text("Light — also remove fillers").tag(LLMRewriter.PolishMode.light.rawValue)
+                        Text("Medium — also fix grammar").tag(LLMRewriter.PolishMode.medium.rawValue)
+                    }
+                    .help("Strict: only fix recognition errors. Light: also remove fillers like 'uh' and 'um'. Medium: also fix grammar and unnatural phrasing — for English practice. Meaning, voice, and vocabulary are preserved at every level.")
 
                     Picker("Provider", selection: $llmProvider) {
                         ForEach(Self.visibleProviders) { provider in

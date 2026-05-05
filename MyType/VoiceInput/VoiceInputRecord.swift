@@ -14,7 +14,8 @@ struct VoiceInputRecord: Codable, Identifiable {
     let targetApp: String?        // Name of the app text was injected into
     let createdAt: Date
     var wasRewritten: Bool        // Whether LLM rewrite was applied
-    let lightPolished: Bool?      // Whether light-polish mode was on (nil = old records)
+    let lightPolished: Bool?      // Legacy: kept for old-record compat. New writes mirror polishMode != "strict".
+    let polishMode: String?       // "strict" / "light" / "medium" (nil = old records)
     let transcriptionTime: TimeInterval?  // Seconds spent on STT
     var llmPolishTime: TimeInterval?      // Seconds spent on LLM polish
     let llmModel: String?                 // Model used for LLM polish (e.g. "cc-opus")
@@ -30,6 +31,7 @@ struct VoiceInputRecord: Codable, Identifiable {
         createdAt: Date = .now,
         wasRewritten: Bool = false,
         lightPolished: Bool? = nil,
+        polishMode: String? = nil,
         transcriptionTime: TimeInterval? = nil,
         llmPolishTime: TimeInterval? = nil,
         llmModel: String? = nil
@@ -44,6 +46,7 @@ struct VoiceInputRecord: Codable, Identifiable {
         self.createdAt = createdAt
         self.wasRewritten = wasRewritten
         self.lightPolished = lightPolished
+        self.polishMode = polishMode
         self.transcriptionTime = transcriptionTime
         self.llmPolishTime = llmPolishTime
         self.llmModel = llmModel

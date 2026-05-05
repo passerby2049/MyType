@@ -114,8 +114,8 @@ struct VoiceInputHistoryView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
-                            if record.lightPolished == true {
-                                Label("Light Polish", systemImage: "sparkles")
+                            if let modeLabel = polishModeLabel(record) {
+                                Label(modeLabel, systemImage: "sparkles")
                                     .font(.caption)
                                     .foregroundStyle(.purple)
                             } else if record.wasRewritten {
@@ -280,6 +280,16 @@ struct VoiceInputHistoryView: View {
         let minutes = Int(duration) / 60
         let seconds = Int(duration) % 60
         return "\(minutes)m \(seconds)s"
+    }
+
+    /// Label for the polish-mode badge. Reads the new `polishMode` field
+    /// when present, falls back to the legacy `lightPolished` bool for
+    /// pre-mode records (true → "Light Polish").
+    private func polishModeLabel(_ record: VoiceInputRecord) -> String? {
+        if let raw = record.polishMode, let mode = LLMRewriter.PolishMode(rawValue: raw) {
+            return mode == .strict ? nil : "\(mode.displayName) Polish"
+        }
+        return record.lightPolished == true ? "Light Polish" : nil
     }
 
     /// Latency for STT / LLM rows. Sub-second values get higher precision
