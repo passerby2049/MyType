@@ -129,13 +129,13 @@ struct VoiceInputHistoryView: View {
                         if record.transcriptionTime != nil || record.llmPolishTime != nil {
                             HStack(spacing: 12) {
                                 if let stt = record.transcriptionTime {
-                                    Label(String(format: "STT %.1fs", stt), systemImage: "waveform")
+                                    Label("STT \(formatLatency(stt))", systemImage: "waveform")
                                         .font(.caption2)
                                         .foregroundStyle(.tertiary)
                                 }
                                 if let llm = record.llmPolishTime {
                                     let modelLabel = record.llmModel ?? "LLM"
-                                    Label(String(format: "%@ %.1fs", modelLabel, llm), systemImage: "sparkles")
+                                    Label("\(modelLabel) \(formatLatency(llm))", systemImage: "sparkles")
                                         .font(.caption2)
                                         .foregroundStyle(.tertiary)
                                 }
@@ -280,6 +280,18 @@ struct VoiceInputHistoryView: View {
         let minutes = Int(duration) / 60
         let seconds = Int(duration) % 60
         return "\(minutes)m \(seconds)s"
+    }
+
+    /// Latency for STT / LLM rows. Sub-second values get higher precision
+    /// so a fast cached/skipped polish doesn't render as "0.0s".
+    private func formatLatency(_ duration: TimeInterval) -> String {
+        if duration < 0.1 {
+            return String(format: "%.0fms", duration * 1000)
+        }
+        if duration < 10 {
+            return String(format: "%.2fs", duration)
+        }
+        return String(format: "%.1fs", duration)
     }
 }
 

@@ -36,6 +36,14 @@ final class AppPreferences {
         set { UserDefaults.standard.set(newValue, forKey: "anthropicAPIKey") }
     }
 
+    var subscriptionProxyURL: String {
+        get {
+            UserDefaults.standard.string(forKey: "subscriptionProxyURL")
+                ?? "http://127.0.0.1:8088"
+        }
+        set { UserDefaults.standard.set(newValue, forKey: "subscriptionProxyURL") }
+    }
+
     var googleAIKeys: [GoogleAIKeyEntry] {
         get {
             guard let data = UserDefaults.standard.data(forKey: "googleAIKeys"),

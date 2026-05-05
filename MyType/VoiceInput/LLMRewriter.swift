@@ -72,7 +72,7 @@ enum LLMRewriter {
         model: String,
         vocabularyTerms: [String] = []
     ) async throws -> String {
-        if let skipReason = shouldSkipReason(for: rawText) {
+        if let skipReason = shouldSkipReason(for: rawText, lightPolish: lightPolishEnabled) {
             logger.info("🤖 LLM skipped (\(skipReason, privacy: .public)) — input \(rawText.count) chars")
             return rawText
         }
@@ -173,7 +173,7 @@ enum LLMRewriter {
     /// the LLM, otherwise nil. Conservative on purpose — when in doubt,
     /// run the LLM. The savings come from the long tail of one-word
     /// English commands and trivial utterances, not from being clever.
-    private static func shouldSkipReason(for text: String) -> String? {
+    private static func shouldSkipReason(for text: String, lightPolish: Bool) -> String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Empty or single character — nothing to fix.
@@ -181,12 +181,19 @@ enum LLMRewriter {
             return "too short"
         }
 
-        // Pure ASCII (no CJK) and short — Chinese homophone / phonetic
-        // mistakes can't happen here, and English STT short-utterance
-        // accuracy is already excellent. Cutoff at 30 chars covers
-        // single words and short commands like "save the file".
+        // Light Polish is opt-in disfluency cleanup ("uh", "um", "嗯", "呃").
+        // Short utterances are exactly where fillers matter most, so when
+        // the user has Light Polish on, never skip.
+        if lightPolish {
+            return nil
+        }
+
+        // Non-light mode: skip very short pure-ASCII commands like "yes",
+        // "ok", "save". STT is solid here and there's nothing to clean up.
+        // Cutoff is small (10) on purpose — between 10 and 30 chars there's
+        // already enough room for a real homophone or filler to matter.
         let isAsciiOnly = trimmed.unicodeScalars.allSatisfy(\.isASCII)
-        if isAsciiOnly && trimmed.count < 30 {
+        if isAsciiOnly && trimmed.count < 10 {
             return "short ASCII"
         }
 

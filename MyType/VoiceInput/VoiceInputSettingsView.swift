@@ -287,6 +287,7 @@ private struct AIPolishSettingsView: View {
     @State private var newGoogleKeyName = ""
     @State private var newGoogleKey = ""
     @State private var openRouterKey = AIProvider.prefs.openRouterAPIKey
+    @State private var subscriptionProxyURL = AIProvider.prefs.subscriptionProxyURL
 
     private var prefs: AppPreferences { AIProvider.prefs }
 
@@ -338,6 +339,10 @@ private struct AIPolishSettingsView: View {
 
             if useLLM, llmProvider == .openRouter {
                 openRouterKeySection
+            }
+
+            if useLLM, llmProvider == .subscription {
+                subscriptionProxySection
             }
         }
         .formStyle(.grouped)
@@ -410,6 +415,29 @@ private struct AIPolishSettingsView: View {
             Text("OpenRouter API Key")
         } footer: {
             Text("Get your API key from openrouter.ai/keys.")
+        }
+    }
+
+    // MARK: - Subscription Proxy Section
+
+    private var subscriptionProxySection: some View {
+        Section {
+            TextField("Proxy URL", text: $subscriptionProxyURL)
+                .textFieldStyle(.roundedBorder)
+                .autocorrectionDisabled()
+                .onChange(of: subscriptionProxyURL) { _, newValue in
+                    prefs.subscriptionProxyURL = newValue
+                }
+        } header: {
+            Text("Subscription Proxy")
+        } footer: {
+            Text("Runs the `claude-sub-api` daemon locally to convert "
+                + "Claude.ai / ChatGPT subscriptions into HTTP APIs. "
+                + "First time: run `claude-sub-api login` (Claude) or "
+                + "`claude-sub-api codex-login` (ChatGPT), then "
+                + "`claude-sub-api serve -addr 127.0.0.1:8088`. "
+                + "`sub-claude-*` models use the Claude subscription, "
+                + "`sub-gpt-*` models use the ChatGPT subscription.")
         }
     }
 
