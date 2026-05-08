@@ -21,6 +21,15 @@ private let kFnKeyCode: Int = 63
 /// user cancel an in-progress recording from anywhere, not just the ✕
 /// on the overlay capsule.
 private let kEscapeKeyCode: Int = 53
+/// The Space key's virtual key code — combined with fn to trigger
+/// the "polish selected text" action.
+private let kSpaceKeyCode: Int = 49
+/// The Return / Enter key's virtual key code — used to accept the
+/// polish preview when it's showing.
+private let kReturnKeyCode: Int = 36
+/// The numeric-keypad Enter key (separate keycode from main Return).
+/// Both should accept the preview.
+private let kKeypadEnterKeyCode: Int = 76
 
 /// CGEventTap C callback — forwards to the monitor instance via refcon.
 private func hotkeyEventTapCallback(
@@ -43,7 +52,22 @@ final class GlobalHotkeyMonitor {
     /// Callback fired when Escape is pressed while recording is active.
     var onCancelPressed: (() -> Void)?
 
+    /// Callback fired when fn+space is pressed (polish selected text).
+    var onPolishHotkeyPressed: (() -> Void)?
+
+    /// Fired when Return / keypad Enter is pressed while the polish
+    /// preview is visible. The key is swallowed so it doesn't leak to
+    /// the focused app (e.g., Slack would send the message).
+    var onPolishAccept: (() -> Void)?
+    /// Fired when Escape is pressed while the polish preview is visible.
+    /// Same suppression rationale as accept.
+    var onPolishCancel: (() -> Void)?
+
     @ObservationIgnored nonisolated(unsafe) var shouldInterceptEscape = false
+    /// Set by the polish flow while the preview panel is visible. When
+    /// true, Return/Enter and Escape are intercepted and routed to
+    /// onPolishAccept / onPolishCancel respectively.
+    @ObservationIgnored nonisolated(unsafe) var shouldInterceptPolishKeys = false
 
     /// These properties are accessed from the CGEventTap callback which
     /// runs on the run loop thread. They're marked `@ObservationIgnored`
@@ -59,6 +83,9 @@ final class GlobalHotkeyMonitor {
     /// fn key state tracking (accessed from callback thread)
     @ObservationIgnored nonisolated(unsafe) private var fnIsDown = false
     @ObservationIgnored nonisolated(unsafe) private var otherKeyDuringFn = false
+    /// Set when fn+space has fired this fn-hold so we don't re-trigger
+    /// on auto-repeat keyDowns while space stays held.
+    @ObservationIgnored nonisolated(unsafe) private var polishFiredThisFnHold = false
 
     /// NSEvent fallback monitors (used when CGEventTap unavailable)
     @ObservationIgnored nonisolated(unsafe) private var globalMonitor: Any?
@@ -255,11 +282,13 @@ final class GlobalHotkeyMonitor {
             if fnDown && !fnIsDown {
                 fnIsDown = true
                 otherKeyDuringFn = false
+                polishFiredThisFnHold = false
                 return nil
             } else if !fnDown && fnIsDown {
                 fnIsDown = false
                 let wasCleanTap = !otherKeyDuringFn
                 otherKeyDuringFn = false
+                polishFiredThisFnHold = false
 
                 if wasCleanTap {
                     DispatchQueue.main.async { [weak self] in
@@ -272,6 +301,38 @@ final class GlobalHotkeyMonitor {
             return Unmanaged.passUnretained(event)
         }
 
+        // --- keyDown: fn+space → polish selected text ---
+        // Suppress the space so it doesn't leak into the focused field.
+        if type == .keyDown, keyCode == kSpaceKeyCode, fnIsDown {
+            otherKeyDuringFn = true
+            if !polishFiredThisFnHold {
+                polishFiredThisFnHold = true
+                DispatchQueue.main.async { [weak self] in
+                    self?.onPolishHotkeyPressed?()
+                }
+            }
+            return nil
+        }
+
+        // --- keyDown: ⏎ / ⎋ while polish preview is showing ---
+        // Routed BEFORE the existing Escape handler so polish-cancel
+        // takes priority over recording-cancel (only one of those flags
+        // is ever true at a time, but explicit precedence is clearer).
+        if type == .keyDown, shouldInterceptPolishKeys {
+            if keyCode == kReturnKeyCode || keyCode == kKeypadEnterKeyCode {
+                DispatchQueue.main.async { [weak self] in
+                    self?.onPolishAccept?()
+                }
+                return nil
+            }
+            if keyCode == kEscapeKeyCode {
+                DispatchQueue.main.async { [weak self] in
+                    self?.onPolishCancel?()
+                }
+                return nil
+            }
+        }
+
         // --- keyDown: Escape cancels in-progress recording ---
         // Only intercepted when shouldInterceptEscape is true (Manager
         // toggles this around .recording) so regular Esc presses (close
@@ -280,6 +341,13 @@ final class GlobalHotkeyMonitor {
             DispatchQueue.main.async { [weak self] in
                 self?.onCancelPressed?()
             }
+            return nil
+        }
+
+        // --- keyUp: clear space so a re-press within the same fn-hold
+        // can fire polish again ---
+        if type == .keyUp, keyCode == kSpaceKeyCode, fnIsDown {
+            polishFiredThisFnHold = false
             return nil
         }
 

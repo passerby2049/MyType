@@ -95,6 +95,11 @@ final class VoiceInputManager {
                 self?.cancelRecording()
             }
         }
+        hotkeyMonitor.onPolishHotkeyPressed = { [weak self] in
+            Task { @MainActor in
+                self?.polishSelectedText()
+            }
+        }
         hotkeyMonitor.start()
 
         // Pre-warm STT model and LLM session in background so the
@@ -197,11 +202,13 @@ final class VoiceInputManager {
             try Task.checkCancellation()
 
             // Step 3: Optional LLM polish — with timeout fallback.
-            // If LLM takes longer than 8s, inject the raw STT text first
+            // If LLM takes longer than 60s, inject the raw STT text first
             // so the user isn't blocked. LLM result updates history later.
             let llmEnabled = LLMRewriter.isEnabled
             let model = llmEnabled ? LLMRewriter.resolvedModel : nil
-            let lightPolish = llmEnabled ? LLMRewriter.lightPolishEnabled : nil
+            let mode: LLMRewriter.PolishMode? = llmEnabled ? LLMRewriter.polishMode : nil
+            let lightPolish = mode.map { $0 != .strict }
+            let polishModeRaw = mode?.rawValue
             let vocabTerms = VocabularyStore.shared.terms.map(\.term)
             logger.info("LLM polish enabled? \(llmEnabled, privacy: .public)")
 
@@ -209,7 +216,7 @@ final class VoiceInputManager {
                 logger.info("LLM polish using model: \(model, privacy: .public)")
                 let llmStart = Date()
 
-                // Race: LLM polish vs 8s timeout. If the LLM is
+                // Race: LLM polish vs 60s timeout. If the LLM is
                 // slow (thinking, network), inject raw text first.
                 let llmTask = Task {
                     try await LLMRewriter.rewrite(
@@ -225,7 +232,7 @@ final class VoiceInputManager {
                     polishResult = try await withThrowingTaskGroup(of: String?.self) { group in
                         group.addTask { try await llmTask.value }
                         group.addTask {
-                            try await Task.sleep(for: .seconds(8))
+                            try await Task.sleep(for: .seconds(60))
                             return nil
                         }
                         let first = try await group.next() ?? nil
@@ -254,7 +261,7 @@ final class VoiceInputManager {
                         audioFileName: VoiceInputStore.newAudioFileName(id: id),
                         language: VoiceInputLanguage.current.localeIdentifier,
                         duration: recordingDuration, targetApp: targetApp,
-                        wasRewritten: wasRewritten, lightPolished: lightPolish,
+                        wasRewritten: wasRewritten, lightPolished: lightPolish, polishMode: polishModeRaw,
                         transcriptionTime: sttTime, llmPolishTime: llmTime,
                         llmModel: model
                     )
@@ -263,8 +270,8 @@ final class VoiceInputManager {
                     // Timeout (or LLM errored): inject raw text now. Keep
                     // awaiting the LLM in the background — when/if it
                     // returns, update history so the polished version
-                    // isn't lost just because we missed the 8s window.
-                    logger.warning("LLM polish didn't return within 8s — injecting raw text first")
+                    // isn't lost just because we missed the 60s window.
+                    logger.warning("LLM polish didn't return within 60s — injecting raw text first")
 
                     let targetApp = await TextInjector.inject(
                         optimizedText,
@@ -276,8 +283,8 @@ final class VoiceInputManager {
                         audioFileName: VoiceInputStore.newAudioFileName(id: id),
                         language: VoiceInputLanguage.current.localeIdentifier,
                         duration: recordingDuration, targetApp: targetApp,
-                        wasRewritten: false, lightPolished: lightPolish,
-                        transcriptionTime: sttTime, llmPolishTime: nil,
+                        wasRewritten: false, lightPolished: lightPolish, polishMode: polishModeRaw,
+                        transcriptionTime: sttTime, llmPolishTime: llmTime,
                         llmModel: model
                     )
                     VoiceInputStore.shared.add(record)

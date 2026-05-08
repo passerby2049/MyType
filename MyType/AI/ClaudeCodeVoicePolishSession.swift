@@ -8,7 +8,11 @@ import Foundation
 import os
 
 actor ClaudeCodeVoicePolishSession {
+    /// Session dedicated to STT post-correction (raw voice transcripts).
     static let shared = ClaudeCodeVoicePolishSession()
+    /// Separate session for general text polish (fn+space flow). Kept
+    /// separate so seed prompts don't fight each other and force respawns.
+    static let textPolish = ClaudeCodeVoicePolishSession()
 
     private let logger = Logger(
         subsystem: Bundle.main.bundleIdentifier ?? "MyType",

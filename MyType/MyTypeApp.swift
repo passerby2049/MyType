@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var settingsWindow: NSWindow?
     private var historyWindow: NSWindow?
+    private var statsWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMainMenu()
@@ -103,6 +104,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         historyItem.target = self
         historyItem.image = NSImage(systemSymbolName: "list.bullet", accessibilityDescription: nil)
 
+        let statsItem = menu.addItem(
+            withTitle: "Statistics…",
+            action: #selector(openStats),
+            keyEquivalent: ""
+        )
+        statsItem.target = self
+        statsItem.image = NSImage(systemSymbolName: "chart.bar.xaxis", accessibilityDescription: nil)
+
         menu.addItem(.separator())
         menu.addItem(
             withTitle: "Quit MyType",
@@ -166,6 +175,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         historyWindow = window
+    }
+
+    @objc private func openStats() {
+        if let w = statsWindow {
+            w.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let view = VoiceInputStatsView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 480),
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Statistics"
+        window.toolbarStyle = .unified
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: view)
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        statsWindow = window
     }
 }
 
