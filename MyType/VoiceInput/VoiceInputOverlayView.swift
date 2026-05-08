@@ -17,8 +17,8 @@ struct VoiceInputOverlayView: View {
 
     var body: some View {
         let isDone = manager.state == .done
-        let isProcessing = manager.state == .processing
-        let isVisible = manager.state == .recording || manager.state == .processing || manager.state == .done
+        let isProcessing = manager.state.isProcessing
+        let isVisible = manager.state == .recording || manager.state.isProcessing || manager.state == .done
 
         let capsuleWidth: CGFloat = isDone ? 36 : 140
         let capsuleHeight: CGFloat = 36
@@ -67,7 +67,7 @@ struct VoiceInputOverlayView: View {
         .frame(width: 200, height: 80)
         .opacity(isVisible ? 1 : 0)
         .onChange(of: manager.state) { _, newState in
-            if newState == .processing {
+            if newState.isProcessing {
                 startScanning()
             } else {
                 stopScanning()

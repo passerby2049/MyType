@@ -13,6 +13,8 @@ private let logger = Logger(
 @MainActor @Observable
 final class VoiceInputStore {
     static let shared = VoiceInputStore()
+    static let saveHistoryKey = "voiceInputSaveHistory"
+    static let historyRetentionDaysKey = "voiceInputHistoryRetentionDays"
 
     private(set) var records: [VoiceInputRecord] = []
 
@@ -53,9 +55,17 @@ final class VoiceInputStore {
 
     // MARK: - Public API
 
+    static var isHistoryEnabled: Bool {
+        if UserDefaults.standard.object(forKey: saveHistoryKey) == nil {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: saveHistoryKey)
+    }
+
     /// Add a new record and persist immediately.
     func add(_ record: VoiceInputRecord) {
         records.insert(record, at: 0) // Newest first
+        pruneRecords()
         save()
         logger.info("Added voice input record: \(record.id)")
     }
@@ -80,6 +90,18 @@ final class VoiceInputStore {
         records.remove(at: index)
         save()
         logger.info("Deleted voice input record: \(id)")
+    }
+
+    /// Delete all records and their audio files.
+    func deleteAll() {
+        let removed = records
+        records.removeAll()
+        for record in removed {
+            let audioURL = Self.audioDirectory.appending(path: record.audioFileName)
+            try? FileManager.default.removeItem(at: audioURL)
+        }
+        save()
+        logger.info("Deleted all voice input records: \(removed.count)")
     }
 
     /// Full path to a record's audio file.
@@ -117,6 +139,11 @@ final class VoiceInputStore {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             records = try decoder.decode([VoiceInputRecord].self, from: data)
+            let loadedCount = records.count
+            pruneRecords()
+            if records.count != loadedCount {
+                save()
+            }
             logger.info("Loaded \(self.records.count) voice input records")
         } catch {
             logger.error("Failed to load voice input history: \(error)")
@@ -136,5 +163,32 @@ final class VoiceInputStore {
                 logger.error("Failed to save voice input history: \(error)")
             }
         }
+    }
+
+    private func pruneRecords() {
+        let retentionDays = UserDefaults.standard.integer(forKey: Self.historyRetentionDaysKey)
+        guard retentionDays > 0,
+              let cutoff = Calendar.current.date(byAdding: .day, value: -retentionDays, to: .now)
+        else { return }
+
+        var kept: [VoiceInputRecord] = []
+        var removed: [VoiceInputRecord] = []
+
+        for record in records {
+            if record.createdAt < cutoff {
+                removed.append(record)
+            } else {
+                kept.append(record)
+            }
+        }
+
+        guard !removed.isEmpty else { return }
+
+        records = kept
+        for record in removed {
+            let audioURL = Self.audioDirectory.appending(path: record.audioFileName)
+            try? FileManager.default.removeItem(at: audioURL)
+        }
+        logger.info("Pruned \(removed.count) voice input records")
     }
 }

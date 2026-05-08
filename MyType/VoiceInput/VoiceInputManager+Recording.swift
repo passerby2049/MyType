@@ -60,7 +60,9 @@ extension VoiceInputManager {
             // Play start sound with slight delay
             Task {
                 try? await Task.sleep(for: .milliseconds(60))
-                startSound?.play()
+                if self.soundEffectsEnabled {
+                    self.startSound?.play()
+                }
             }
 
             // Show overlay
@@ -94,11 +96,13 @@ extension VoiceInputManager {
         recordingDuration = duration
 
         // Play done sound
-        doneSound?.play()
+        if soundEffectsEnabled {
+            doneSound?.play()
+        }
 
         // Process the recording — keep Esc interception active
         // so the user can cancel during transcription/polish.
-        state = .processing
+        state = .transcribing
         hotkeyMonitor.shouldInterceptEscape = true
         updateOverlay()
 

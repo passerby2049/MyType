@@ -5,6 +5,7 @@
 // "bracketed paste" highlight some Electron apps apply.
 
 import AppKit
+import ApplicationServices
 import Foundation
 import os
 
@@ -12,6 +13,11 @@ private let logger = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "MyType",
     category: "TextInjector"
 )
+
+struct TextInjectionResult {
+    let targetApp: String?
+    let status: VoiceInputInsertStatus
+}
 
 enum TextInjector {
 
@@ -40,7 +46,11 @@ enum TextInjector {
         _ text: String,
         targetPID: pid_t?,
         targetName: String?
-    ) async -> String? {
+    ) async -> TextInjectionResult {
+        guard !text.isEmpty else {
+            return TextInjectionResult(targetApp: targetName, status: .failed)
+        }
+
         // Re-activate the captured target app so it's the key window
         // when we synthesize keystrokes at the HID layer.
         if let pid = targetPID,
@@ -53,8 +63,15 @@ enum TextInjector {
         try? await Task.sleep(for: .milliseconds(120))
 
         logger.info("Typing into \(targetName ?? "unknown") (pid=\(targetPID ?? -1)): \(text.count) chars")
-        typeUnicodeString(text)
-        return targetName
+        if typeUnicodeString(text) {
+            return TextInjectionResult(targetApp: targetName, status: .inserted)
+        }
+
+        logger.warning("Unicode typing failed — copied text to clipboard fallback")
+        return TextInjectionResult(
+            targetApp: targetName,
+            status: copyFallback(text) ? .copiedFallback : .failed
+        )
     }
 
     // MARK: - Unicode String Typing
@@ -70,8 +87,13 @@ enum TextInjector {
     /// chunks of `maxUnicodeChunk` UTF-16 code units. We post at the HID
     /// event tap so the WindowServer routes the events to the current
     /// key window (works for Electron renderers — postToPid does not).
-    private static func typeUnicodeString(_ text: String) {
-        guard !text.isEmpty else { return }
+    private static func typeUnicodeString(_ text: String) -> Bool {
+        guard !text.isEmpty else { return false }
+
+        guard AXIsProcessTrusted() else {
+            logger.warning("Accessibility permission is not granted — cannot type via CGEvent")
+            return false
+        }
 
         let source = CGEventSource(stateID: .combinedSessionState)
 
@@ -90,31 +112,46 @@ enum TextInjector {
         while index < utf16.count {
             let end = min(index + maxUnicodeChunk, utf16.count)
             let slice = Array(utf16[index..<end])
-            postChunk(slice, source: source)
+            guard postChunk(slice, source: source) else {
+                return false
+            }
             index = end
         }
+
+        return true
     }
 
     /// Post a single keyDown/keyUp pair carrying the given UTF-16 chunk
     /// as its Unicode string payload. The virtual key code is irrelevant
     /// (we use 0); apps insert the unicode string directly without
     /// triggering any autocomplete/IME behavior tied to real key codes.
-    private static func postChunk(_ utf16Chunk: [UniChar], source: CGEventSource?) {
+    private static func postChunk(_ utf16Chunk: [UniChar], source: CGEventSource?) -> Bool {
         guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
               let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false)
-        else { return }
+        else { return false }
 
         keyDown.flags = []
         keyUp.flags = []
 
+        var posted = false
         utf16Chunk.withUnsafeBufferPointer { buf in
             if let base = buf.baseAddress {
                 keyDown.keyboardSetUnicodeString(stringLength: buf.count, unicodeString: base)
                 keyUp.keyboardSetUnicodeString(stringLength: buf.count, unicodeString: base)
+                posted = true
             }
         }
 
+        guard posted else { return false }
+
         keyDown.post(tap: .cghidEventTap)
         keyUp.post(tap: .cghidEventTap)
+        return true
+    }
+
+    private static func copyFallback(_ text: String) -> Bool {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        return pasteboard.setString(text, forType: .string)
     }
 }

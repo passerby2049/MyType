@@ -98,7 +98,7 @@ extension VoiceInputManager {
     /// manager is busy with a voice recording or already processing.
     func polishSelectedText() {
         switch state {
-        case .recording, .processing:
+        case .recording, .transcribing, .polishing, .inserting:
             logger.info("Polish ignored — busy with state \(String(describing: self.state))")
             return
         case .idle, .done, .failure:
@@ -162,7 +162,10 @@ extension VoiceInputManager {
         // press resolves it.
         session.llmTask = Task { @MainActor [weak session] in
             do {
-                let polished = try await TextPolisher.polish(selectedText)
+                let polished = try await TextPolisher.polish(
+                    selectedText,
+                    frontApp: capturedTargetName
+                )
                 try Task.checkCancellation()
                 guard let session else { return }
                 session.llmCompleted(polished, original: selectedText)
@@ -207,7 +210,9 @@ extension VoiceInputManager {
         case .error:
             restoreClipboard(savedClipboard, pasteboard: pasteboard,
                               originalChangeCount: pasteboard.changeCount)
-            errorSound?.play()
+            if soundEffectsEnabled {
+                errorSound?.play()
+            }
         }
     }
 

@@ -17,9 +17,29 @@ private let logger = Logger(
 enum VoiceInputState: Equatable {
     case idle
     case recording
-    case processing
+    case transcribing
+    case polishing
+    case inserting
     case done
     case failure(String)
+
+    var isProcessing: Bool {
+        switch self {
+        case .transcribing, .polishing, .inserting:
+            true
+        case .idle, .recording, .done, .failure:
+            false
+        }
+    }
+
+    var canCancelProcessing: Bool {
+        switch self {
+        case .transcribing, .polishing:
+            true
+        case .idle, .recording, .inserting, .done, .failure:
+            false
+        }
+    }
 }
 
 // VoiceInputEngineChoice + VoiceInputLanguage live in
@@ -28,6 +48,7 @@ enum VoiceInputState: Equatable {
 @MainActor @Observable
 final class VoiceInputManager {
     static let shared = VoiceInputManager()
+    static let soundEffectsEnabledKey = "voiceInputSoundEffects"
 
     // MARK: - Public State
 
@@ -116,6 +137,13 @@ final class VoiceInputManager {
         errorSound = NSSound(named: "Basso")
     }
 
+    var soundEffectsEnabled: Bool {
+        if UserDefaults.standard.object(forKey: Self.soundEffectsEnabledKey) == nil {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: Self.soundEffectsEnabledKey)
+    }
+
     // MARK: - Recording Toggle
 
     /// Toggle between recording and idle states.
@@ -126,15 +154,21 @@ final class VoiceInputManager {
             startRecording()
         case .recording:
             finishRecording()
-        case .processing:
+        case .transcribing, .polishing:
             cancelProcessing()
+        case .inserting:
+            logger.info("Cancel ignored — text insertion is already in progress")
         }
     }
 
     /// Cancel the current recording or processing.
     func cancelRecording() {
-        if state == .processing {
+        if state.canCancelProcessing {
             cancelProcessing()
+            return
+        }
+        if state == .inserting {
+            logger.info("Cancel ignored — text insertion is already in progress")
             return
         }
         guard state == .recording else { return }
@@ -186,6 +220,8 @@ final class VoiceInputManager {
 
         do {
             // Step 1: Transcribe using the configured engine
+            state = .transcribing
+            updateOverlay()
             let sttStart = Date()
             let rawText = try await transcribeAudio(at: audioURL)
             let sttTime = Date().timeIntervalSince(sttStart)
@@ -209,10 +245,12 @@ final class VoiceInputManager {
             let mode: LLMRewriter.PolishMode? = llmEnabled ? LLMRewriter.polishMode : nil
             let lightPolish = mode.map { $0 != .strict }
             let polishModeRaw = mode?.rawValue
-            let vocabTerms = VocabularyStore.shared.terms.map(\.term)
+            let vocabTerms = VocabularyStore.shared.enabledTerms.map(\.term)
             logger.info("LLM polish enabled? \(llmEnabled, privacy: .public)")
 
             if llmEnabled, let model {
+                state = .polishing
+                updateOverlay()
                 logger.info("LLM polish using model: \(model, privacy: .public)")
                 let llmStart = Date()
 
@@ -223,7 +261,8 @@ final class VoiceInputManager {
                         rawText: optimizedText,
                         language: VoiceInputLanguage.current,
                         model: model,
-                        vocabularyTerms: vocabTerms
+                        vocabularyTerms: vocabTerms,
+                        frontApp: capturedTargetName
                     )
                 }
 
@@ -251,21 +290,26 @@ final class VoiceInputManager {
                     let wasRewritten = polished != optimizedText
                     logger.info("LLM polish OK in \(String(format: "%.1f", llmTime))s — wasRewritten=\(wasRewritten, privacy: .public)")
 
-                    let targetApp = await TextInjector.inject(
+                    state = .inserting
+                    updateOverlay()
+                    let injection = await TextInjector.inject(
                         polished,
                         targetPID: capturedTargetPID,
                         targetName: capturedTargetName
                     )
+                    let vocabularyHitCount = VocabularyStore.shared.recordHits(in: polished)
                     let record = VoiceInputRecord(
                         id: id, text: polished, rawTranscript: rawText,
                         audioFileName: VoiceInputStore.newAudioFileName(id: id),
-                        language: VoiceInputLanguage.current.localeIdentifier,
-                        duration: recordingDuration, targetApp: targetApp,
+                        language: VoiceInputLanguage.current.localeIdentifier, duration: recordingDuration,
+                        targetApp: injection.targetApp, insertStatus: injection.status,
+                        errorCode: errorCode(insertStatus: injection.status),
+                        vocabularyHitCount: vocabularyHitCount,
                         wasRewritten: wasRewritten, lightPolished: lightPolish, polishMode: polishModeRaw,
                         transcriptionTime: sttTime, llmPolishTime: llmTime,
                         llmModel: model
                     )
-                    VoiceInputStore.shared.add(record)
+                    saveHistoryRecordIfNeeded(record)
                 } else {
                     // Timeout (or LLM errored): inject raw text now. Keep
                     // awaiting the LLM in the background — when/if it
@@ -273,66 +317,81 @@ final class VoiceInputManager {
                     // isn't lost just because we missed the 60s window.
                     logger.warning("LLM polish didn't return within 60s — injecting raw text first")
 
-                    let targetApp = await TextInjector.inject(
+                    state = .inserting
+                    updateOverlay()
+                    let injection = await TextInjector.inject(
                         optimizedText,
                         targetPID: capturedTargetPID,
                         targetName: capturedTargetName
                     )
+                    let vocabularyHitCount = VocabularyStore.shared.recordHits(in: optimizedText)
                     let record = VoiceInputRecord(
                         id: id, text: optimizedText, rawTranscript: rawText,
                         audioFileName: VoiceInputStore.newAudioFileName(id: id),
-                        language: VoiceInputLanguage.current.localeIdentifier,
-                        duration: recordingDuration, targetApp: targetApp,
+                        language: VoiceInputLanguage.current.localeIdentifier, duration: recordingDuration,
+                        targetApp: injection.targetApp, insertStatus: injection.status,
+                        errorCode: errorCode(insertStatus: injection.status, polishTimedOut: true),
+                        vocabularyHitCount: vocabularyHitCount,
                         wasRewritten: false, lightPolished: lightPolish, polishMode: polishModeRaw,
                         transcriptionTime: sttTime, llmPolishTime: llmTime,
                         llmModel: model
                     )
-                    VoiceInputStore.shared.add(record)
+                    saveHistoryRecordIfNeeded(record)
 
-                    Task { [logger] in
-                        do {
-                            let polished = try await llmTask.value
-                            let totalTime = Date().timeIntervalSince(llmStart)
-                            let wasRewritten = polished != optimizedText
-                            logger.info("LLM polish late result in \(String(format: "%.1f", totalTime))s — updating history")
-                            VoiceInputStore.shared.update(id) { rec in
-                                rec.text = polished
-                                rec.wasRewritten = wasRewritten
-                                rec.llmPolishTime = totalTime
-                            }
-                        } catch is CancellationError {
-                            // Parent was cancelled — the raw-text record is
-                            // already saved; nothing more to do.
-                        } catch {
-                            let totalTime = Date().timeIntervalSince(llmStart)
-                            logger.error("LLM polish failed after \(String(format: "%.1f", totalTime))s: \(error.localizedDescription, privacy: .public)")
-                            VoiceInputStore.shared.update(id) { rec in
-                                rec.llmPolishTime = totalTime
+                    if VoiceInputStore.isHistoryEnabled {
+                        Task { [logger] in
+                            do {
+                                let polished = try await llmTask.value
+                                let totalTime = Date().timeIntervalSince(llmStart)
+                                let wasRewritten = polished != optimizedText
+                                logger.info("LLM polish late result in \(String(format: "%.1f", totalTime))s — updating history")
+                                VoiceInputStore.shared.update(id) { rec in
+                                    rec.text = polished
+                                    rec.wasRewritten = wasRewritten
+                                    rec.llmPolishTime = totalTime
+                                }
+                            } catch is CancellationError {
+                                // Parent was cancelled — the raw-text record is
+                                // already saved; nothing more to do.
+                            } catch {
+                                let totalTime = Date().timeIntervalSince(llmStart)
+                                logger.error("LLM polish failed after \(String(format: "%.1f", totalTime))s: \(error.localizedDescription, privacy: .public)")
+                                VoiceInputStore.shared.update(id) { rec in
+                                    rec.llmPolishTime = totalTime
+                                }
                             }
                         }
+                    } else {
+                        llmTask.cancel()
                     }
                 }
             } else {
                 logger.info("LLM polish skipped (toggle off in Voice Input Settings)")
 
-                let targetApp = await TextInjector.inject(
+                state = .inserting
+                updateOverlay()
+                let injection = await TextInjector.inject(
                     optimizedText,
                     targetPID: capturedTargetPID,
                     targetName: capturedTargetName
                 )
+                let vocabularyHitCount = VocabularyStore.shared.recordHits(in: optimizedText)
                 let record = VoiceInputRecord(
                     id: id, text: optimizedText, rawTranscript: rawText,
                     audioFileName: VoiceInputStore.newAudioFileName(id: id),
-                    language: VoiceInputLanguage.current.localeIdentifier,
-                    duration: recordingDuration, targetApp: targetApp,
+                    language: VoiceInputLanguage.current.localeIdentifier, duration: recordingDuration,
+                    targetApp: injection.targetApp, insertStatus: injection.status,
+                    errorCode: errorCode(insertStatus: injection.status),
+                    vocabularyHitCount: vocabularyHitCount,
                     wasRewritten: false, lightPolished: nil,
                     transcriptionTime: sttTime, llmPolishTime: nil,
                     llmModel: nil
                 )
-                VoiceInputStore.shared.add(record)
+                saveHistoryRecordIfNeeded(record)
             }
 
             // Done!
+            clearCurrentSessionAfterSuccess()
             state = .done
             hotkeyMonitor.shouldInterceptEscape = false
             updateOverlay()
@@ -354,6 +413,34 @@ final class VoiceInputManager {
             logger.error("Processing failed: \(error) — dismissing silently")
             silentlyDismiss()
         }
+    }
+
+    private func errorCode(
+        insertStatus: VoiceInputInsertStatus,
+        polishTimedOut: Bool = false
+    ) -> String? {
+        if insertStatus == .failed {
+            return "injectionFailed"
+        }
+        if polishTimedOut {
+            return "polishTimeout"
+        }
+        return nil
+    }
+
+    private func saveHistoryRecordIfNeeded(_ record: VoiceInputRecord) {
+        if VoiceInputStore.isHistoryEnabled {
+            VoiceInputStore.shared.add(record)
+        } else {
+            let audioURL = VoiceInputStore.audioDirectory.appending(path: record.audioFileName)
+            try? FileManager.default.removeItem(at: audioURL)
+            logger.info("History disabled — skipped voice input record: \(record.id)")
+        }
+    }
+
+    private func clearCurrentSessionAfterSuccess() {
+        currentRecordingID = nil
+        recordingStartTime = nil
     }
 
     // MARK: - Overlay Panel

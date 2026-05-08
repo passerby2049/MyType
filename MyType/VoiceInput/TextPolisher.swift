@@ -22,7 +22,7 @@ enum TextPolisher {
     /// Polish the given text via the LLM configured in voice-input
     /// settings. Reuses `LLMRewriter.resolvedModel` so users only have
     /// one model to configure for both flows.
-    static func polish(_ text: String) async throws -> String {
+    static func polish(_ text: String, frontApp: String? = nil) async throws -> String {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.count < 2 {
             return text
@@ -37,9 +37,9 @@ enum TextPolisher {
         let started = Date.now
         let raw: String
         if AIProvider.provider(for: model) == .claudeCode {
-            raw = try await polishViaClaudeCodeSession(text: text, model: model)
+            raw = try await polishViaClaudeCodeSession(text: text, model: model, frontApp: frontApp)
         } else {
-            raw = try await polishViaStream(text: text, model: model)
+            raw = try await polishViaStream(text: text, model: model, frontApp: frontApp)
         }
 
         let elapsed = Date.now.timeIntervalSince(started)
@@ -50,8 +50,12 @@ enum TextPolisher {
 
     // MARK: - Stream Path
 
-    private static func polishViaStream(text: String, model: String) async throws -> String {
-        let prompt = buildPrompt(text: text)
+    private static func polishViaStream(
+        text: String,
+        model: String,
+        frontApp: String?
+    ) async throws -> String {
+        let prompt = buildPrompt(text: text, frontApp: frontApp)
         var collected = ""
         for try await chunk in AIProvider.stream(
             prompt: prompt,
@@ -67,12 +71,13 @@ enum TextPolisher {
 
     private static func polishViaClaudeCodeSession(
         text: String,
-        model: String
+        model: String,
+        frontApp: String?
     ) async throws -> String {
         let effort = await MainActor.run { LLMRewriter.resolvedEffort }
         return try await ClaudeCodeVoicePolishSession.textPolish.polish(
             text: text,
-            seedPrompt: buildSeedPrompt(),
+            seedPrompt: buildSeedPrompt(frontApp: frontApp),
             model: model,
             effort: effort
         )
@@ -98,14 +103,14 @@ enum TextPolisher {
 
     // MARK: - Prompt
 
-    private static func buildPrompt(text: String) -> String {
-        var sections = ruleSections()
+    private static func buildPrompt(text: String, frontApp: String?) -> String {
+        var sections = ruleSections(frontApp: frontApp)
         sections.append("Input:\n\(text)")
         return sections.joined(separator: "\n\n")
     }
 
-    private static func buildSeedPrompt() -> String {
-        var sections = ruleSections()
+    private static func buildSeedPrompt(frontApp: String?) -> String {
+        var sections = ruleSections(frontApp: frontApp)
         sections.append(
             """
             I will send you texts to polish, one at a time. For each \
@@ -116,8 +121,8 @@ enum TextPolisher {
         return sections.joined(separator: "\n\n")
     }
 
-    private static func ruleSections() -> [String] {
-        [
+    private static func ruleSections(frontApp: String?) -> [String] {
+        var sections = [
             """
             You are a text polisher. The user has selected some text in a \
             text field and wants it cleaned up — but not rewritten. Make \
@@ -167,6 +172,24 @@ enum TextPolisher {
             Return only the polished text.
             """,
         ]
+        if let appContext = frontAppContext(frontApp) {
+            sections.append(appContext)
+        }
+        return sections
+    }
+
+    private static func frontAppContext(_ appName: String?) -> String? {
+        guard let appName = appName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !appName.isEmpty
+        else { return nil }
+
+        return """
+        Current target app: \(appName). Adjust only the amount of formality \
+        and punctuation that naturally fits this app: email apps can be more \
+        polished, chat apps can stay conversational, and coding tools should \
+        preserve technical wording and structure. Do not add facts, greetings, \
+        or sign-offs the user did not write.
+        """
     }
 
     // MARK: - Response cleanup
