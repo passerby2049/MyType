@@ -80,6 +80,20 @@ final class VoiceInputStore {
         logger.info("Updated voice input record: \(id)")
     }
 
+    /// Mutate several records with one save. Ids that no longer exist
+    /// are skipped.
+    func update(_ changes: [UUID: (inout VoiceInputRecord) -> Void]) {
+        var changed = 0
+        for index in records.indices {
+            guard let mutate = changes[records[index].id] else { continue }
+            mutate(&records[index])
+            changed += 1
+        }
+        guard changed > 0 else { return }
+        save()
+        logger.info("Updated \(changed) voice input records")
+    }
+
     /// Delete a record by ID, removing its audio file too.
     func delete(_ id: UUID) {
         guard let index = records.firstIndex(where: { $0.id == id }) else { return }

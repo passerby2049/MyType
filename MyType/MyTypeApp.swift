@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupMainMenu()
         setupStatusItem()
         VoiceInputManager.shared.activate()
+        VoiceLog.shared.start()
         NotificationCenter.default.addObserver(
             self, selector: #selector(openHistory),
             name: .openHistory, object: nil

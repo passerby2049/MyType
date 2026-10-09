@@ -20,6 +20,9 @@ struct GeneralSettingsView: View {
     @AppStorage(VoiceInputLanguage.defaultsKey)
     private var languageRaw: String = VoiceInputLanguage.fallback.rawValue
 
+    @AppStorage(VoiceLog.ottoFolderKey)
+    private var ottoFolder = VoiceLog.defaultOttoFolder
+
     private var selectedLanguage: Binding<VoiceInputLanguage> {
         Binding(
             get: { VoiceInputLanguage(rawValue: languageRaw) ?? .fallback },
@@ -33,8 +36,12 @@ struct GeneralSettingsView: View {
             hotkeySection
             languageSection
             optionsSection
+            voiceLogSection
         }
         .formStyle(.grouped)
+        .onChange(of: ottoFolder) { _, _ in
+            Task { await VoiceLog.shared.run() }
+        }
     }
 
     private var readinessSection: some View {
@@ -112,6 +119,40 @@ struct GeneralSettingsView: View {
             }
             .disabled(!saveHistory)
             .help("Keep Forever preserves the full local history. Other options delete older records and audio files.")
+        }
+    }
+
+    private var voiceLogSection: some View {
+        Section {
+            LabeledContent("Otto Folder") {
+                HStack(spacing: 8) {
+                    Text(ottoFolder.isEmpty ? "Off" : (ottoFolder as NSString).abbreviatingWithTildeInPath)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Button("Choose…", action: chooseOttoFolder)
+                    if !ottoFolder.isEmpty {
+                        Button("Off") { ottoFolder = "" }
+                    }
+                }
+            }
+        } header: {
+            Text("Voice Log")
+        } footer: {
+            Text("Each day's dictations — recognized, polished, and as sent to Claude Code — go to _数据/语音输入/ in this folder, for Otto to learn from.")
+        }
+    }
+
+    private func chooseOttoFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        if !ottoFolder.isEmpty {
+            panel.directoryURL = URL(fileURLWithPath: ottoFolder)
+        }
+        if panel.runModal() == .OK, let url = panel.url {
+            ottoFolder = url.path
         }
     }
 

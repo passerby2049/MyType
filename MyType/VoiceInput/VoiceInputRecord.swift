@@ -17,6 +17,16 @@ enum VoiceInputInsertStatus: String, Codable, CaseIterable {
     }
 }
 
+/// What came of looking up what a dictation was sent as (`VoiceLog`).
+enum VoiceInputSentLookup: String, Codable {
+    /// Found in Claude Code's input history; `sentText` holds it.
+    case found
+    /// Went to a coding app, but no input in the next 15 minutes has it.
+    case notFound
+    /// Went to an app with nothing to look in (WeChat, Notes…).
+    case noSource
+}
+
 /// A single voice input record, completely decoupled from Story.
 struct VoiceInputRecord: Codable, Identifiable {
     let id: UUID
@@ -36,6 +46,9 @@ struct VoiceInputRecord: Codable, Identifiable {
     let transcriptionTime: TimeInterval?  // Seconds spent on STT
     var llmPolishTime: TimeInterval?      // Seconds spent on LLM polish
     let llmModel: String?                 // Model used for LLM polish (e.g. "cc-opus")
+    var sentLookup: VoiceInputSentLookup? = nil  // Whether what was sent was looked up (nil = not yet)
+    var sentText: String? = nil           // This dictation as it was sent to Claude Code, edits included
+    var sentAt: Date? = nil               // When that input was submitted
 
     init(
         id: UUID = UUID(),
