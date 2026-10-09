@@ -85,9 +85,9 @@ enum LLMRewriter {
     /// Stream-collect the LLM's correction of the given STT output.
     ///
     /// Guardrails:
-    /// - Empty / whitespace-only LLM output → return the original.
-    /// - LLM output more than 3× the input length → likely a
-    ///   hallucination or instruction-leakage; return the original.
+    /// - An empty reply, one that grew past what a polish does, or one
+    ///   that talks about the task (the model answering or thinking out
+    ///   loud) → return the original (`PolishOutputGuard`).
     /// - Any thrown error (network, auth, model not available) is
     ///   propagated to the caller, which decides whether to fall back.
     ///
@@ -181,16 +181,13 @@ enum LLMRewriter {
     // MARK: - Guardrails
 
     /// Shared post-processing for both streaming and session paths:
-    /// strip wrappers, reject empty / suspiciously long output.
+    /// strip wrappers, keep the original when the reply isn't a polish
+    /// of it (`PolishOutputGuard`).
     private static func applyGuardrails(rawOutput: String, rawText: String) -> String {
         let cleaned = stripWrappers(rawOutput)
 
-        if cleaned.isEmpty {
-            logger.warning("🤖 LLM returned empty — keeping original")
-            return rawText
-        }
-        if cleaned.count > rawText.count * 3 + 80 {
-            logger.warning("🤖 LLM suspiciously long (\(cleaned.count) vs \(rawText.count)) — keeping original")
+        if let reason = PolishOutputGuard.rejection(output: cleaned, input: rawText) {
+            logger.warning("🤖 LLM reply rejected (\(reason, privacy: .public)) — keeping original")
             return rawText
         }
 

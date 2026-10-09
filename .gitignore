@@ -47,3 +47,4 @@ screenshots/
 eval/data/
 eval/*/.build/
 eval/seed-dump/seed-dump
+eval/guard-check/guard-check

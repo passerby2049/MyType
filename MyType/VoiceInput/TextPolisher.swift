@@ -86,17 +86,13 @@ enum TextPolisher {
 
     // MARK: - Guardrails
 
-    /// If the LLM returns empty, refuses, or balloons output beyond a
-    /// reasonable multiple of the input, fall back to the original. We
-    /// never want polish to delete or hallucinate text.
+    /// If the reply isn't a polish of the text — empty, grown, or talking
+    /// about the task (`PolishOutputGuard`) — fall back to the original.
+    /// We never want polish to delete or hallucinate text.
     private static func applyGuardrails(rawOutput: String, originalText: String) -> String {
         let cleaned = stripWrappers(rawOutput)
-        if cleaned.isEmpty {
-            logger.warning("Polish returned empty — keeping original")
-            return originalText
-        }
-        if cleaned.count > originalText.count * 3 + 200 {
-            logger.warning("Polish suspiciously long (\(cleaned.count) vs \(originalText.count)) — keeping original")
+        if let reason = PolishOutputGuard.rejection(output: cleaned, input: originalText) {
+            logger.warning("Polish reply rejected (\(reason, privacy: .public)) — keeping original")
             return originalText
         }
         return cleaned
