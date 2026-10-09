@@ -60,10 +60,24 @@ extension LLMRewriter {
         mode: PolishMode,
         frontApp: String?
     ) -> [String] {
-        let isChinese = language.rawValue.hasPrefix("zh")
-        var sections = isChinese
-            ? chineseRuleSections(language: language, mode: mode)
-            : englishRuleSections(language: language, mode: mode)
+        var sections: [String]
+        switch language {
+        case .chinese: sections = chineseRuleSections(language: language, mode: mode)
+        case .english: sections = englishRuleSections(language: language, mode: mode)
+        case .japanese: sections = japaneseRuleSections
+        case .auto:
+            // One seed for all three, so the warm session isn't respawned
+            // whenever the next sentence is in another language.
+            sections = ["""
+            The transcript can be Chinese, English or Japanese, or a mix. \
+            Follow the rules under the heading of its main language; words \
+            from the other languages inside it stay in their own language.
+            """]
+            sections += ["## Chinese"] + chineseRuleSections(language: .chinese, mode: mode)
+            sections += ["## English"] + englishRuleSections(language: .english, mode: mode)
+            sections += ["## Japanese"] + japaneseRuleSections
+        }
+        sections += [transcriptDataRule, finalOutputRule]
         if let appContext = frontAppContext(frontApp) {
             sections.append(appContext)
         }
@@ -71,6 +85,29 @@ extension LLMRewriter {
             sections.append(vocabLine)
         }
         return sections
+    }
+
+    /// Japanese: recognition errors only, whatever the polish mode — the
+    /// speaker is learning Japanese and needs to see what they said.
+    private static var japaneseRuleSections: [String] {
+        [
+            """
+            You are a strict post-processor for Japanese speech-to-text output \
+            from a Japanese learner. Fix recognition errors only: a kanji or \
+            kana that is clearly the wrong word for the sound in context \
+            (homophones), garbled words, English terms the context shows were \
+            meant as English.
+            """,
+            """
+            Do NOT:
+            - Correct grammar, particles, conjugation or word choice - keep \
+            the learner's own Japanese, mistakes included.
+            - Rewrite kana as kanji or kanji as kana unless the recognized \
+            word is wrong.
+            - Translate, or turn Japanese into Chinese.
+            - Add explanations, quotes, markdown, or labels.
+            """,
+        ]
     }
 
     private static func frontAppContext(_ appName: String?) -> String? {
@@ -117,9 +154,7 @@ extension LLMRewriter {
             6. Word boundary errors and split letters: A P P->APP, S T T->STT.
             7. Common STT confusions: 刘宇书法->语音输入法.
             """,
-            transcriptDataRule,
             chineseDontList(language: language, mode: mode),
-            finalOutputRule,
         ]
     }
 
@@ -214,9 +249,7 @@ extension LLMRewriter {
             sections.append(englishMediumRule)
         }
 
-        sections.append(transcriptDataRule)
         sections.append(englishDontList(language: language, mode: mode))
-        sections.append(finalOutputRule)
         return sections
     }
 

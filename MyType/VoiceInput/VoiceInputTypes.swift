@@ -1,6 +1,6 @@
 // Abstract:
 // Enums describing the user-facing knobs for voice input — the
-// transcription engine choice and the primary dictation language.
+// transcription engine choice and the dictation language.
 // Split out of VoiceInputManager.swift so that file stays under the
 // 500-line limit (CLAUDE.md architecture rule).
 
@@ -10,37 +10,31 @@ import Foundation
 
 /// User-selectable transcription engine. Stored under UserDefaults key
 /// `voiceInputEngine`; read via @AppStorage in settings, read directly
-/// by VoiceInputManager at transcription time.
+/// by VoiceInputManager at transcription time. A stored value from an
+/// engine that's gone (FluidAudio's Qwen3, Parakeet) reads as the default.
 enum VoiceInputEngineChoice: String, CaseIterable, Identifiable {
-    /// FluidAudio Qwen3-ASR, int8 variant (~900MB). Recommended default —
-    /// same quality as f32 with half the RAM.
-    case qwen3Int8 = "qwen3_int8"
-    /// FluidAudio Qwen3-ASR, f32 variant (~1.75GB). Faster inference, more RAM.
-    case qwen3F32 = "qwen3_f32"
-    /// NVIDIA Parakeet TDT v3 via FluidAudio — 25 European languages.
-    /// English is the strongest; no Chinese support.
-    case parakeetV3 = "parakeet_v3"
-    /// NVIDIA Parakeet TDT v2 via FluidAudio — English only, highest
-    /// accuracy for pure-English dictation.
-    case parakeetV2 = "parakeet_v2"
-    /// Apple's built-in Speech framework. No download, works offline.
+    /// Qwen3-ASR 1.7B (MLX 5-bit, speech-swift): Chinese, English and
+    /// Japanese in one model, language detected, takes a context.
+    /// ~2 GB in memory. Measured best (docs/eval-2026-10-09.md).
+    case qwen3Large = "qwen3_1.7b"
+    /// Qwen3-ASR 0.6B (MLX 8-bit): the same, smaller — ~1.3 GB, less
+    /// accurate (Japanese most of all).
+    case qwen3Small = "qwen3_0.6b"
+    /// Apple's built-in Speech framework. No download, works offline,
+    /// one language at a time.
     case appleSpeech = "apple_speech"
 
     static let defaultsKey = "voiceInputEngine"
-    static let fallback: VoiceInputEngineChoice = .qwen3Int8
+    static let fallback: VoiceInputEngineChoice = .qwen3Large
 
     var id: String { rawValue }
 
-    /// Which language(s) this engine actually handles well. Used by the
-    /// settings view to filter the engine list based on the user's
-    /// chosen input language. Qwen3 speaks Chinese + English natively,
-    /// Parakeet doesn't do Chinese at all.
-    func supports(language: VoiceInputLanguage) -> Bool {
-        switch (self, language) {
-        case (.appleSpeech, _): true
-        case (.qwen3Int8, _), (.qwen3F32, _): true
-        case (.parakeetV3, .english), (.parakeetV2, .english): true
-        case (.parakeetV3, .chinese), (.parakeetV2, .chinese): false
+    /// The Hugging Face model speech-swift downloads and loads.
+    var modelID: String? {
+        switch self {
+        case .qwen3Large: "aufklarer/Qwen3-ASR-1.7B-MLX-5bit"
+        case .qwen3Small: "aufklarer/Qwen3-ASR-0.6B-MLX-8bit"
+        case .appleSpeech: nil
         }
     }
 
@@ -53,42 +47,57 @@ enum VoiceInputEngineChoice: String, CaseIterable, Identifiable {
 
 // MARK: - Language
 
-/// Primary dictation language. The user picks this in settings; it
-/// drives both the engine list filtering and the language hint we
-/// pass to the underlying transcriber at runtime.
+/// Dictation language. Auto lets Qwen3-ASR tell Chinese, English and
+/// Japanese apart (mixing them is fine); picking one only passes it as a
+/// hint — the model stays the same. Polish rules follow the language of
+/// the text that came back (`resolved(for:)`).
 enum VoiceInputLanguage: String, CaseIterable, Identifiable {
+    case auto
     case chinese = "zh"
     case english = "en"
+    case japanese = "ja"
 
     static let defaultsKey = "voiceInputLanguage"
-    static let fallback: VoiceInputLanguage = .chinese
+    static let fallback: VoiceInputLanguage = .auto
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
+        case .auto: "自动"
         case .chinese: "中文"
         case .english: "English"
+        case .japanese: "日本語"
         }
     }
 
-    /// BCP-47 locale identifier for AppleSpeech and hinting Qwen3.
+    /// BCP-47 locale identifier for Apple Speech (one language at a time:
+    /// auto uses the Mac's first preferred language).
     var localeIdentifier: String {
         switch self {
+        case .auto: Locale.preferredLanguages.first ?? "en-US"
         case .chinese: "zh-CN"
         case .english: "en-US"
+        case .japanese: "ja-JP"
         }
     }
 
-    /// Short two-letter code Qwen3 expects for its `language` parameter.
-    var qwen3Hint: String {
-        switch self {
-        case .chinese: "zh"
-        case .english: "en"
-        }
+    /// The `language` hint for Qwen3-ASR; nil lets it detect.
+    var qwen3Hint: String? {
+        self == .auto ? nil : rawValue
     }
 
-    /// Read the current choice from UserDefaults, falling back to Chinese.
+    /// The language of a transcript, for the polish rules: kana means
+    /// Japanese, other CJK means Chinese, otherwise English. A language
+    /// picked in settings stays as picked.
+    func resolved(for text: String) -> VoiceInputLanguage {
+        guard self == .auto else { return self }
+        if text.unicodeScalars.contains(where: { (0x3040...0x30FF).contains($0.value) }) { return .japanese }
+        if text.unicodeScalars.contains(where: { (0x3400...0x9FFF).contains($0.value) }) { return .chinese }
+        return .english
+    }
+
+    /// Read the current choice from UserDefaults, falling back to auto.
     static var current: VoiceInputLanguage {
         let raw = UserDefaults.standard.string(forKey: defaultsKey) ?? ""
         return VoiceInputLanguage(rawValue: raw) ?? fallback

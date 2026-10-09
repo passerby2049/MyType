@@ -7,9 +7,6 @@ struct EngineSettingsView: View {
     @AppStorage(VoiceInputEngineChoice.defaultsKey)
     private var engineRaw: String = VoiceInputEngineChoice.fallback.rawValue
 
-    @AppStorage(VoiceInputLanguage.defaultsKey)
-    private var languageRaw: String = VoiceInputLanguage.fallback.rawValue
-
     @State private var modelStatus: [VoiceInputEngineChoice: Bool] = [:]
 
     private var selectedEngine: Binding<VoiceInputEngineChoice> {
@@ -19,15 +16,10 @@ struct EngineSettingsView: View {
         )
     }
 
-    private var visibleEngines: [VoiceInputEngineChoice] {
-        let lang = VoiceInputLanguage(rawValue: languageRaw) ?? .fallback
-        return VoiceInputEngineChoice.allCases.filter { $0.supports(language: lang) }
-    }
-
     var body: some View {
         Form {
             Section {
-                ForEach(visibleEngines) { engine in
+                ForEach(VoiceInputEngineChoice.allCases) { engine in
                     EngineSettingsRow(
                         engine: engine,
                         isActive: selectedEngine.wrappedValue == engine,
@@ -39,7 +31,7 @@ struct EngineSettingsView: View {
             } header: {
                 Text("Transcription Engine")
             } footer: {
-                Text("Qwen3-ASR: Chinese + English code-switching. Parakeet: English-only (v2) or 25 European languages (v3). Apple Speech: built-in fallback.")
+                Text("Qwen3-ASR: Chinese, English and Japanese in one model, mixed freely; your vocabulary is passed to it while it listens. Apple Speech: built-in fallback.")
             }
         }
         .formStyle(.grouped)

@@ -1,9 +1,10 @@
 // Abstract:
-// STT engine dispatch — Qwen3-ASR, Parakeet, and Apple Speech backends.
+// STT engine dispatch — Qwen3-ASR (speech-swift, MLX) and Apple Speech.
 
 import AVFoundation
-import FluidAudio
+import AudioCommon
 import Foundation
+import Qwen3ASR
 
 extension VoiceInputManager {
 
@@ -14,91 +15,50 @@ extension VoiceInputManager {
         let language = VoiceInputLanguage.current
 
         switch choice {
-        case .qwen3Int8, .qwen3F32:
-            if #available(macOS 15, *) {
-                return try await transcribeWithQwen3(
-                    at: url,
-                    variantChoice: choice,
-                    language: language
-                )
-            } else {
-                // Qwen3 requires macOS 15+ — silently fall back.
-                return try await transcribeWithAppleSpeech(at: url, language: language)
-            }
-        case .parakeetV2, .parakeetV3:
-            return try await transcribeWithParakeet(at: url, variantChoice: choice)
+        case .qwen3Large, .qwen3Small:
+            return try await transcribeWithQwen3(at: url, engine: choice, language: language)
         case .appleSpeech:
             return try await transcribeWithAppleSpeech(at: url, language: language)
         }
     }
 
-    @available(macOS 15, *)
+    /// The loaded model for `engine`, loading (and on first use downloading)
+    /// it if needed.
+    func qwen3Model(for engine: VoiceInputEngineChoice) async throws -> Qwen3ASRModel {
+        if let model = qwen3Model, qwen3LoadedEngine == engine { return model }
+        guard let modelID = engine.modelID else { throw TranscriptionError.couldNotDownloadModel }
+        qwen3Model = nil
+        // Download and weight loading off the main thread (~2 GB for 1.7B).
+        let model = try await Task.detached(priority: .userInitiated) {
+            try await Qwen3ASRModel.fromPretrained(modelId: modelID)
+        }.value
+        qwen3Model = model
+        qwen3LoadedEngine = engine
+        return model
+    }
+
+    /// Transcribe with Qwen3-ASR. The vocabulary goes in as context: the
+    /// model leans toward those spellings while it listens (measured:
+    /// mixed-in terms 18/28 → 28/28, docs/eval-2026-10-09.md).
     func transcribeWithQwen3(
         at url: URL,
-        variantChoice: VoiceInputEngineChoice,
+        engine: VoiceInputEngineChoice,
         language: VoiceInputLanguage
     ) async throws -> String {
-        let sdkVariant: Qwen3AsrVariant = (variantChoice == .qwen3F32) ? .f32 : .int8
-
-
-        // Reuse the cached manager if it's already loaded the requested
-        // variant; otherwise load fresh.
-        let manager: Qwen3AsrManager
-        if let existing = qwen3Manager, qwen3LoadedVariant == variantChoice {
-            manager = existing
-        } else {
-            let modelsURL = try await Qwen3AsrModels.download(variant: sdkVariant)
-            let m = Qwen3AsrManager()
-            try await m.loadModels(from: modelsURL)
-            qwen3Manager = m
-            qwen3LoadedVariant = variantChoice
-            manager = m
-        }
-
-        // Convert m4a (44.1kHz AAC) to the 16kHz mono Float32 samples
-        // Qwen3 expects.
-        let converter = AudioConverter()
-        let samples = try converter.resampleAudioFile(url)
-
-        // Hint the model with the user's selected language. Qwen3 still
-        // handles code-switching correctly with either hint, but the
-        // hint nudges ambiguous short utterances in the right direction.
-        let text = try await manager.transcribe(
-            audioSamples: samples,
-            language: language.qwen3Hint
-        )
+        let model = try await qwen3Model(for: engine)
+        let options = Qwen3DecodingOptions(language: language.qwen3Hint, context: Self.recognitionContext())
+        let text = try await Task.detached(priority: .userInitiated) {
+            let samples = try AudioFileLoader.load(url: url, targetSampleRate: 16000)
+            return try model.transcribeCheckingCancellation(audio: samples, sampleRate: 16000, options: options)
+        }.value
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Transcribe with Parakeet TDT (v2 = English only, v3 = 25 EU
-    /// languages). No Chinese support — the settings UI only exposes
-    /// these engines when language == english, so we don't branch on
-    /// language here.
-    func transcribeWithParakeet(
-        at url: URL,
-        variantChoice: VoiceInputEngineChoice
-    ) async throws -> String {
-        let version: AsrModelVersion = (variantChoice == .parakeetV2) ? .v2 : .v3
-
-
-        let manager: AsrManager
-        if let existing = parakeetManager, parakeetLoadedVariant == variantChoice {
-            manager = existing
-        } else {
-            let models = try await AsrModels.downloadAndLoad(version: version)
-            let m = AsrManager(config: .default)
-            try await m.loadModels(models)
-            parakeetManager = m
-            parakeetLoadedVariant = variantChoice
-            manager = m
-        }
-
-        // Resample to 16kHz mono Float32 — same format Qwen3 uses.
-        let converter = AudioConverter()
-        let samples = try converter.resampleAudioFile(url)
-
-        let result = try await manager.transcribe(samples)
-        return result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+    /// The vocabulary as Qwen3-ASR's context: a short list works best (a
+    /// long one is slower and no more accurate).
+    static func recognitionContext() -> String? {
+        let terms = VocabularyStore.shared.enabledTerms.map(\.term).prefix(60)
+        return terms.isEmpty ? nil : "Vocabulary: " + terms.joined(separator: ", ")
     }
 
     /// Fallback: transcribe with Apple Speech using the selected

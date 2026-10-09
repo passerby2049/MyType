@@ -53,9 +53,9 @@ struct GeneralSettingsView: View {
             )
             PermissionStatusRow(
                 title: "Transcription",
-                isReady: VoiceInputEngineChoice.current.supports(language: selectedLanguage.wrappedValue),
+                isReady: VoiceInputEngineChoice.current.modelsPresentOnDisk,
                 readyText: VoiceInputEngineChoice.current.shortName,
-                blockedText: "Choose a compatible engine"
+                blockedText: "\(VoiceInputEngineChoice.current.shortName) downloads on first use"
             )
             PermissionStatusRow(
                 title: "AI Polish",
@@ -95,7 +95,7 @@ struct GeneralSettingsView: View {
         } header: {
             Text("Language")
         } footer: {
-            Text("Primary dictation language. Qwen3-ASR handles Chinese/English code-switching either way.")
+            Text("自动: Qwen3-ASR tells Chinese, English and Japanese apart, mixed in one sentence too. Picking one only hints it.")
         }
     }
 

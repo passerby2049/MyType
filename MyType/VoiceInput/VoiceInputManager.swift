@@ -4,7 +4,7 @@
 
 import AVFoundation
 import AppKit
-import FluidAudio
+import Qwen3ASR
 import Foundation
 import os
 
@@ -79,15 +79,10 @@ final class VoiceInputManager {
     var capturedTargetPID: pid_t?
     var capturedTargetName: String?
 
-    /// Lazily-loaded Qwen3-ASR manager. Cached per variant — if the user
-    /// switches between int8 and f32 mid-session, we discard and re-load.
-    var qwen3Manager: Qwen3AsrManager?
-    var qwen3LoadedVariant: VoiceInputEngineChoice?
-
-    /// Lazily-loaded Parakeet manager. Keyed by variant so switching
-    /// between v2 and v3 reloads the right models.
-    var parakeetManager: AsrManager?
-    var parakeetLoadedVariant: VoiceInputEngineChoice?
+    /// Lazily-loaded Qwen3-ASR model (speech-swift), kept for the engine
+    /// it was loaded for — switching 1.7B / 0.6B loads the other.
+    var qwen3Model: Qwen3ASRModel?
+    var qwen3LoadedEngine: VoiceInputEngineChoice?
 
     // MARK: - Sound Effects
 
@@ -301,7 +296,7 @@ final class VoiceInputManager {
                     let record = VoiceInputRecord(
                         id: id, text: polished, rawTranscript: rawText,
                         audioFileName: VoiceInputStore.newAudioFileName(id: id),
-                        language: VoiceInputLanguage.current.localeIdentifier, duration: recordingDuration,
+                        language: VoiceInputLanguage.current.resolved(for: rawText).localeIdentifier, duration: recordingDuration,
                         targetApp: injection.targetApp, insertStatus: injection.status,
                         errorCode: errorCode(insertStatus: injection.status),
                         vocabularyHitCount: vocabularyHitCount,
@@ -328,7 +323,7 @@ final class VoiceInputManager {
                     let record = VoiceInputRecord(
                         id: id, text: optimizedText, rawTranscript: rawText,
                         audioFileName: VoiceInputStore.newAudioFileName(id: id),
-                        language: VoiceInputLanguage.current.localeIdentifier, duration: recordingDuration,
+                        language: VoiceInputLanguage.current.resolved(for: rawText).localeIdentifier, duration: recordingDuration,
                         targetApp: injection.targetApp, insertStatus: injection.status,
                         errorCode: errorCode(insertStatus: injection.status, polishTimedOut: true),
                         vocabularyHitCount: vocabularyHitCount,
@@ -379,7 +374,7 @@ final class VoiceInputManager {
                 let record = VoiceInputRecord(
                     id: id, text: optimizedText, rawTranscript: rawText,
                     audioFileName: VoiceInputStore.newAudioFileName(id: id),
-                    language: VoiceInputLanguage.current.localeIdentifier, duration: recordingDuration,
+                    language: VoiceInputLanguage.current.resolved(for: rawText).localeIdentifier, duration: recordingDuration,
                     targetApp: injection.targetApp, insertStatus: injection.status,
                     errorCode: errorCode(insertStatus: injection.status),
                     vocabularyHitCount: vocabularyHitCount,
