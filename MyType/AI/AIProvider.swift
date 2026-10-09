@@ -66,9 +66,9 @@ struct AIProvider {
     static var anthropicKey: String { prefs.anthropicAPIKey }
 
     static let anthropicModels = [
-        "claude-opus-4-6",
-        "claude-sonnet-4-6",
-        "claude-haiku-4-5"
+        "claude-opus-5-5",
+        "claude-sonnet-5-5",
+        "claude-haiku-5-5"
     ]
 
     static let openRouterModels = [
@@ -147,7 +147,8 @@ struct AIProvider {
     /// Stream a completion. `temperature` is optional — when nil, each
     /// provider uses its own default. Pass a low value (e.g. 0.1) for
     /// strict post-processing tasks like voice-input typo correction
-    /// where creative rewriting would be a bug.
+    /// where creative rewriting would be a bug. Anthropic ignores it:
+    /// current Claude models reject non-default sampling parameters.
     ///
     /// Claude Code (`cc-*` models) is not routed here — callers must
     /// dispatch to `ClaudeCodeVoicePolishSession` themselves to reuse
@@ -161,7 +162,7 @@ struct AIProvider {
         case .openRouter:
             return streamOpenRouter(prompt: prompt, model: model, temperature: temperature)
         case .anthropic:
-            return streamAnthropic(prompt: prompt, model: model, temperature: temperature)
+            return streamAnthropic(prompt: prompt, model: model)
         case .googleAI:
             return streamGoogleAI(prompt: prompt, model: model, temperature: temperature)
         case .claudeCode:

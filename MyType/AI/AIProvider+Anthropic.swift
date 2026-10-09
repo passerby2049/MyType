@@ -9,8 +9,7 @@ extension AIProvider {
 
     static func streamAnthropic(
         prompt: String,
-        model: String,
-        temperature: Double? = nil
+        model: String
     ) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
             Task {
@@ -23,13 +22,14 @@ extension AIProvider {
                 request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
                 var body: [String: Any] = [
                     "model": model,
-                    "max_tokens": 4096,
+                    "max_tokens": 16000,
                     "stream": true,
                     "messages": [["role": "user", "content": prompt]]
                 ]
-                if let temperature {
-                    // Anthropic accepts 0.0–1.0; clamp to be safe.
-                    body["temperature"] = max(0.0, min(1.0, temperature))
+                // Polish is latency-bound: low effort, as on the Claude Code
+                // path. Haiku 4.5 predates effort and rejects it.
+                if !model.hasPrefix("claude-haiku-4") {
+                    body["output_config"] = ["effort": "low"]
                 }
                 request.httpBody = try? JSONSerialization.data(withJSONObject: body)
                 do {
@@ -78,6 +78,20 @@ extension AIProvider {
                             : currentEvent
                         if eventType == "message_stop" {
                             break
+                        }
+
+                        // A cut-off or declined reply must not be pasted as if
+                        // it were the polished text; the caller keeps the original.
+                        if eventType == "message_delta",
+                           let delta = json["delta"] as? [String: Any],
+                           let stop = delta["stop_reason"] as? String,
+                           stop == "max_tokens" || stop == "refusal" {
+                            continuation.finish(throwing: NSError(
+                                domain: "Anthropic",
+                                code: 0,
+                                userInfo: [NSLocalizedDescriptionKey: "stop_reason \(stop)"]
+                            ))
+                            return
                         }
 
                         if eventType == "content_block_delta",
