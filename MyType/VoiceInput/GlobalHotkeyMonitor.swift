@@ -1,7 +1,8 @@
 // Abstract:
 // Global hotkey monitor for voice input — intercepts the fn (Globe)
 // key using CGEventTap to suppress the system emoji picker and
-// toggle voice recording.
+// toggle voice recording; a tap of right Control toggles it too (for
+// external keyboards whose fn never reaches the Mac).
 //
 // Reference: TypeFlux (github.com/mylxsw/typeflux) EventTapHotkeyService
 
@@ -17,6 +18,12 @@ private let logger = Logger(
 
 /// The fn/Globe key's virtual key code on macOS.
 private let kFnKeyCode: Int = 63
+/// Right Control: the same tap-to-toggle as fn, for keyboards whose fn
+/// never reaches the Mac (most third-party ones handle fn in firmware).
+private let kRightControlKeyCode: Int = 62
+/// The device-dependent flag bit for right Control (NX_DEVICERCTLKEYMASK),
+/// so left Control held at the same time doesn't count.
+private let kRightControlFlag: UInt64 = 0x2000
 /// The Escape key's virtual key code — used by Voice Input to let the
 /// user cancel an in-progress recording from anywhere, not just the ✕
 /// on the overlay capsule.
@@ -86,6 +93,10 @@ final class GlobalHotkeyMonitor {
     /// Set when fn+space has fired this fn-hold so we don't re-trigger
     /// on auto-repeat keyDowns while space stays held.
     @ObservationIgnored nonisolated(unsafe) private var polishFiredThisFnHold = false
+    /// Right Control held, and whether another key went with it (then it
+    /// was a shortcut like ⌃C, not a tap).
+    @ObservationIgnored nonisolated(unsafe) private var rightControlIsDown = false
+    @ObservationIgnored nonisolated(unsafe) private var otherKeyDuringRightControl = false
 
     /// NSEvent fallback monitors (used when CGEventTap unavailable)
     @ObservationIgnored nonisolated(unsafe) private var globalMonitor: Any?
@@ -221,6 +232,9 @@ final class GlobalHotkeyMonitor {
     }
 
     private func handleNSEvent(_ event: NSEvent) {
+        if event.type == .keyDown, rightControlIsDown {
+            otherKeyDuringRightControl = true
+        }
         if event.type == .flagsChanged {
             handleNSFlagsChanged(event)
         } else if event.type == .keyDown,
@@ -235,6 +249,10 @@ final class GlobalHotkeyMonitor {
     }
 
     private func handleNSFlagsChanged(_ event: NSEvent) {
+        if event.keyCode == kRightControlKeyCode {
+            handleRightControl(isDown: UInt64(event.modifierFlags.rawValue) & kRightControlFlag != 0)
+            return
+        }
         guard event.keyCode == kFnKeyCode else { return }
         let fnDown = event.modifierFlags.contains(.function)
 
@@ -249,6 +267,25 @@ final class GlobalHotkeyMonitor {
                 }
             }
             otherKeyDuringFn = false
+        }
+    }
+
+    // MARK: - Right Control
+
+    /// A clean tap (down and up with no other key between) toggles
+    /// recording, like fn.
+    nonisolated private func handleRightControl(isDown: Bool) {
+        if isDown && !rightControlIsDown {
+            rightControlIsDown = true
+            otherKeyDuringRightControl = false
+        } else if !isDown && rightControlIsDown {
+            rightControlIsDown = false
+            if !otherKeyDuringRightControl {
+                DispatchQueue.main.async { [weak self] in
+                    self?.onHotkeyPressed?()
+                }
+            }
+            otherKeyDuringRightControl = false
         }
     }
 
@@ -269,6 +306,12 @@ final class GlobalHotkeyMonitor {
         }
 
         let keyCode = Int(event.getIntegerValueField(.keyboardEventKeycode))
+
+        // --- flagsChanged: right Control tap → toggle recording ---
+        if type == .flagsChanged, keyCode == kRightControlKeyCode {
+            handleRightControl(isDown: event.flags.rawValue & kRightControlFlag != 0)
+            return Unmanaged.passUnretained(event)
+        }
 
         // --- flagsChanged: detect fn press/release ---
         if type == .flagsChanged {
@@ -351,9 +394,12 @@ final class GlobalHotkeyMonitor {
             return nil
         }
 
-        // --- keyDown: track if another key pressed while fn held ---
+        // --- keyDown: track if another key pressed while fn or right Control held ---
         if type == .keyDown && fnIsDown {
             otherKeyDuringFn = true
+        }
+        if type == .keyDown && rightControlIsDown {
+            otherKeyDuringRightControl = true
         }
 
         return Unmanaged.passUnretained(event)

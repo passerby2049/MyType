@@ -69,7 +69,7 @@ struct GeneralSettingsView: View {
     private var hotkeySection: some View {
         Section("Hotkey") {
             LabeledContent("Trigger") {
-                Text("fn (Globe key)")
+                Text("fn (Globe key) or right Control")
                     .foregroundStyle(.secondary)
             }
             LabeledContent("Monitor") {
