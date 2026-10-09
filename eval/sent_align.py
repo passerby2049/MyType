@@ -1,8 +1,9 @@
-"""Which MyType records were sent on to Claude Code, and what was actually sent (prototype for docs/design-voice-log.md).
+"""Which MyType records were sent on, and what was actually sent (prototype for docs/design-voice-log.md).
 Matches each record from a coding app against ~/.claude/history.jsonl — what was submitted to Claude Code in the 15 minutes
-after it — and cuts out the part that corresponds to the dictation.
+after it — and each record from Otto against what was said in Otto's chats (the Otto Mac app's ChatClient copy), and cuts
+out the part that corresponds to the dictation.
   python3 sent_align.py [n]   prints the counts and the first n records that were edited before sending"""
-import datetime, json, os, sys
+import datetime, glob, json, os, sys
 from collections import Counter
 from difflib import SequenceMatcher
 
@@ -22,6 +23,20 @@ def claude_inputs():
         out.append((o["timestamp"] / 1000, text))
     return sorted(out)
 
+def otto_inputs():
+    folder = os.path.expanduser("~/Library/Application Support/com.yutian.cardiocoach.mac/ChatClient")
+    lines = []
+    for chat in [folder] + sorted(glob.glob(os.path.join(folder, "Goals", "*"))):
+        try: lines += json.load(open(os.path.join(chat, "chat.json"))).get("records", [])
+        except (OSError, ValueError): pass
+        try: lines += [json.loads(l) for l in open(os.path.join(chat, "chat-older.jsonl")) if l.strip()]
+        except (OSError, ValueError): pass
+    epoch = datetime.datetime(2001, 1, 1, tzinfo=datetime.timezone.utc).timestamp()
+    return sorted((epoch + l["at"], l["text"]) for l in lines
+                  if l.get("kind") == "user" and isinstance(l.get("at"), (int, float)) and isinstance(l.get("text"), str))
+
+def source(app): return "claude" if app in CODING else "otto" if app == "Otto" else None
+
 def is_word(c): return c.isascii() and (c.isalnum() or c == "'")
 
 def sent_part(dictated, sent):
@@ -36,9 +51,10 @@ def sent_part(dictated, sent):
     part = sent[a:z].strip()
     return part if len(part) <= 1.5 * len(dictated) + 10 else None
 
-def align(records, inputs):
+def align(records, sources):
     for r in records:
-        if (r.get("targetApp") or "") not in CODING:
+        inputs = sources.get(source(r.get("targetApp")))
+        if inputs is None:
             yield r, "no source", None; continue
         t = datetime.datetime.fromisoformat(r["createdAt"].replace("Z", "+00:00")).timestamp()
         found = None
@@ -52,7 +68,7 @@ def align(records, inputs):
 
 if __name__ == "__main__":
     records = json.load(open(os.path.expanduser("~/Library/Application Support/MyType/VoiceInput/history.json")))
-    results = list(align(records, claude_inputs()))
+    results = list(align(records, {"claude": claude_inputs(), "otto": otto_inputs()}))
     if sys.argv[1:] == ["--ids"]:
         for r, kind, sent in results: print(f"{r['id']}\t{kind}\t{(sent or '').replace(chr(10), chr(92) + 'n')}")
         sys.exit()

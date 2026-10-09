@@ -1,14 +1,29 @@
 // Abstract:
 // Finds what a dictation became once it was sent: the part of a later
-// Claude Code input (~/.claude/history.jsonl, kept for good) that is this
-// dictation, as the user sent it — edits included. Matching mirrors
-// eval/sent_align.py; eval/align-check runs both over the same records.
+// input that is this dictation, as the user sent it — edits included.
+// Inputs come from Claude Code's input history (~/.claude/history.jsonl,
+// kept for good) for coding apps, and from the Otto Mac app's copy of its
+// chat for Otto. Matching mirrors eval/sent_align.py; eval/align-check
+// runs both over the same records.
 
 import Foundation
 
 enum SentTextAligner {
     /// Apps whose dictations usually go to Claude Code.
     static let codingApps: Set<String> = ["Code", "Warp", "Zed", "Terminal", "Cursor", "Ghostty", "iTerm2"]
+
+    enum Source: Sendable {
+        case claude
+        case otto
+    }
+
+    /// Where to look for what a dictation into `app` was sent as.
+    static func source(for app: String?) -> Source? {
+        guard let app else { return nil }
+        if codingApps.contains(app) { return .claude }
+        if app == "Otto" { return .otto }
+        return nil
+    }
 
     /// How long after a dictation its input may be submitted.
     static let sendWindow: TimeInterval = 15 * 60
@@ -31,26 +46,34 @@ enum SentTextAligner {
         let text: String
     }
 
-    static func lookUp(_ dictations: [Dictation], in inputs: [Input]) -> [UUID: Lookup] {
+    /// Each source's inputs are read only when a dictation needs them.
+    static func lookUp(_ dictations: [Dictation], inputs: (Source) -> [Input]) -> [UUID: Lookup] {
+        var read: [Source: [Input]] = [:]
         var results: [UUID: Lookup] = [:]
         for dictation in dictations {
-            guard let app = dictation.app, codingApps.contains(app) else {
+            guard let source = source(for: dictation.app) else {
                 results[dictation.id] = .noSource
                 continue
             }
-            let text = dictation.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            let from = dictation.at.addingTimeInterval(-5)
-            let until = dictation.at.addingTimeInterval(sendWindow)
-            results[dictation.id] = .notFound
-            for input in inputs where input.at >= from {
-                if input.at > until { break }
-                if let part = sentPart(of: text, in: input.text) {
-                    results[dictation.id] = .found(text: part, at: input.at)
-                    break
-                }
+            if read[source] == nil {
+                read[source] = inputs(source)
             }
+            let text = dictation.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            results[dictation.id] = firstSent(text, at: dictation.at, in: read[source] ?? []) ?? .notFound
         }
         return results
+    }
+
+    private static func firstSent(_ text: String, at: Date, in inputs: [Input]) -> Lookup? {
+        let from = at.addingTimeInterval(-5)
+        let until = at.addingTimeInterval(sendWindow)
+        for input in inputs where input.at >= from {
+            if input.at > until { break }
+            if let part = sentPart(of: text, in: input.text) {
+                return .found(text: part, at: input.at)
+            }
+        }
+        return nil
     }
 
     /// Everything submitted to Claude Code, oldest first, with pasted
@@ -75,6 +98,48 @@ enum SentTextAligner {
             inputs.append(Input(at: Date(timeIntervalSince1970: ms / 1000), text: text))
         }
         return inputs.sorted { ($0.at, $0.text) < ($1.at, $1.text) }
+    }
+
+    static func inputs(from source: Source) -> [Input] {
+        switch source {
+        case .claude: claudeInputs()
+        case .otto: ottoInputs()
+        }
+    }
+
+    /// What was said in Otto's chats, oldest first, from the Otto Mac app's
+    /// own copy (ChatClient/): the daily conversation (chat.json, its
+    /// archive chat-older.jsonl) and each goal's (Goals/*/chat.json). Lines
+    /// are {"kind", "at" (seconds since 2001), "text"}; only "user" counts.
+    static func ottoInputs(
+        folder: URL = URL(fileURLWithPath: NSHomeDirectory()
+            + "/Library/Application Support/com.yutian.cardiocoach.mac/ChatClient")
+    ) -> [Input] {
+        let fm = FileManager.default
+        var chats = [folder]
+        let goals = folder.appending(path: "Goals")
+        chats += (try? fm.contentsOfDirectory(at: goals, includingPropertiesForKeys: nil)) ?? []
+
+        var lines: [[String: Any]] = []
+        for chat in chats {
+            if let data = try? Data(contentsOf: chat.appending(path: "chat.json")),
+               let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                lines += o["records"] as? [[String: Any]] ?? []
+            }
+            if let older = try? String(contentsOf: chat.appending(path: "chat-older.jsonl"), encoding: .utf8) {
+                lines += older.split(separator: "\n").compactMap {
+                    try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any]
+                }
+            }
+        }
+        return lines.compactMap { line -> Input? in
+            guard line["kind"] as? String == "user",
+                  let at = line["at"] as? Double,
+                  let text = line["text"] as? String
+            else { return nil }
+            return Input(at: Date(timeIntervalSinceReferenceDate: at), text: text)
+        }
+        .sorted { ($0.at, $0.text) < ($1.at, $1.text) }
     }
 
     /// The part of `sent` that is `dictated`, or nil when it isn't in

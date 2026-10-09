@@ -1,4 +1,4 @@
-// align-check — runs MyType's SentTextAligner over the saved records (history.json) and Claude Code's input history,
+// align-check — runs MyType's SentTextAligner over the saved records (history.json), Claude Code's input history and Otto's chat,
 // one line per record: id, result (sent as pasted / edited / not matched / no source), what was sent. Same output as
 // `python3 sent_align.py --ids`, so the two can be diffed.
 // Build: swiftc -O -o align-check main.swift ../../MyType/VoiceInput/SentTextAligner.swift
@@ -12,7 +12,7 @@ let dictations = records.compactMap { r -> SentTextAligner.Dictation? in
           let at = (r["createdAt"] as? String).flatMap(iso.date(from:)) else { return nil }
     return SentTextAligner.Dictation(id: id, text: text, at: at, app: r["targetApp"] as? String)
 }
-let results = SentTextAligner.lookUp(dictations, in: SentTextAligner.claudeInputs())
+let results = SentTextAligner.lookUp(dictations, inputs: SentTextAligner.inputs(from:))
 for d in dictations {
     switch results[d.id] {
     case .found(let sent, _):

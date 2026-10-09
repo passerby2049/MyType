@@ -52,12 +52,12 @@ final class VoiceLog {
         let store = VoiceInputStore.shared
         let cutoff = Date.now.addingTimeInterval(-SentTextAligner.sendWindow)
         let dictations = store.records
-            .filter { $0.sentLookup == nil && $0.createdAt < cutoff }
+            .filter { $0.createdAt < cutoff && Self.needsLookUp($0) }
             .map { SentTextAligner.Dictation(id: $0.id, text: $0.text, at: $0.createdAt, app: $0.targetApp) }
         guard !dictations.isEmpty else { return }
 
         let results = await Task.detached(priority: .utility) {
-            SentTextAligner.lookUp(dictations, in: SentTextAligner.claudeInputs())
+            SentTextAligner.lookUp(dictations, inputs: SentTextAligner.inputs(from:))
         }.value
 
         var changes: [UUID: (inout VoiceInputRecord) -> Void] = [:]
@@ -77,6 +77,15 @@ final class VoiceLog {
         }
         store.update(changes)
         logger.info("Looked up what \(dictations.count) dictations were sent as")
+    }
+
+    /// Not looked up yet — or found to have no source before its app got one.
+    private static func needsLookUp(_ record: VoiceInputRecord) -> Bool {
+        switch record.sentLookup {
+        case nil: true
+        case .noSource: SentTextAligner.source(for: record.targetApp) != nil
+        case .found, .notFound: false
+        }
     }
 
     // MARK: - Daily files

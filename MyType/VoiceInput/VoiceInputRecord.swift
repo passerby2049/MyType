@@ -19,9 +19,9 @@ enum VoiceInputInsertStatus: String, Codable, CaseIterable {
 
 /// What came of looking up what a dictation was sent as (`VoiceLog`).
 enum VoiceInputSentLookup: String, Codable {
-    /// Found in Claude Code's input history; `sentText` holds it.
+    /// Found in what was sent (Claude Code, Otto's chat); `sentText` holds it.
     case found
-    /// Went to a coding app, but no input in the next 15 minutes has it.
+    /// Went to an app we can look in, but nothing sent in the next 15 minutes has it.
     case notFound
     /// Went to an app with nothing to look in (WeChat, Notes…).
     case noSource
@@ -47,7 +47,7 @@ struct VoiceInputRecord: Codable, Identifiable {
     var llmPolishTime: TimeInterval?      // Seconds spent on LLM polish
     let llmModel: String?                 // Model used for LLM polish (e.g. "cc-opus")
     var sentLookup: VoiceInputSentLookup? = nil  // Whether what was sent was looked up (nil = not yet)
-    var sentText: String? = nil           // This dictation as it was sent to Claude Code, edits included
+    var sentText: String? = nil           // This dictation as it was sent (Claude Code, Otto), edits included
     var sentAt: Date? = nil               // When that input was submitted
 
     init(

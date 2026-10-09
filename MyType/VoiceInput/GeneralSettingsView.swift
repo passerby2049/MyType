@@ -139,7 +139,7 @@ struct GeneralSettingsView: View {
         } header: {
             Text("Voice Log")
         } footer: {
-            Text("Each day's dictations — recognized, polished, and as sent to Claude Code — go to _数据/语音输入/ in this folder, for Otto to learn from.")
+            Text("Each day's dictations — recognized, polished, and as sent to Claude Code or Otto — go to _数据/语音输入/ in this folder, for Otto to learn from.")
         }
     }
 
