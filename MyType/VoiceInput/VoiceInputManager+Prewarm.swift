@@ -14,7 +14,7 @@ extension VoiceInputManager {
 
     // MARK: - Prewarm
 
-    /// Load the STT model and seed the LLM session in the background.
+    /// Load the STT model and warm the LLM session in the background.
     /// Runs at app launch so the first voice input is fast.
     func prewarm() async {
         let start = Date()
@@ -43,20 +43,20 @@ extension VoiceInputManager {
 
     func prewarmLLMSession() async {
         // Read MainActor-isolated settings on the main actor.
-        let (enabled, model, seed) = await MainActor.run {
+        let (enabled, model, systemPrompt) = await MainActor.run {
             (
                 LLMRewriter.isEnabled,
                 LLMRewriter.resolvedModel,
-                LLMRewriter.buildSeedPromptForPrewarm()
+                LLMRewriter.buildSystemPromptForPrewarm()
             )
         }
         guard enabled, AIProvider.provider(for: model) == .claudeCode else { return }
 
-        // Spawn + seed the session so the first real polish call is fast.
+        // Spawn the session and send one turn so the first real polish call is fast.
         do {
             _ = try await ClaudeCodeVoicePolishSession.shared.polish(
-                text: "test",
-                seedPrompt: seed,
+                text: LLMRewriter.sessionMessage(text: "test", frontApp: nil),
+                systemPrompt: systemPrompt,
                 model: model
             )
             logger.info("Pre-warmed Claude Code session (model=\(model))")

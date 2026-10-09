@@ -19,7 +19,6 @@ struct AIPolishSettingsView: View {
     @State private var newGoogleKeyName = ""
     @State private var newGoogleKey = ""
     @State private var openRouterKey = AIProvider.prefs.openRouterAPIKey
-    @State private var subscriptionProxyURL = AIProvider.prefs.subscriptionProxyURL
 
     private var prefs: AppPreferences { AIProvider.prefs }
 
@@ -88,10 +87,6 @@ struct AIPolishSettingsView: View {
         if useLLM, llmProvider == .openRouter {
             openRouterKeySection
         }
-
-        if useLLM, llmProvider == .subscription {
-            subscriptionProxySection
-        }
     }
 
     private var googleAIKeySection: some View {
@@ -132,20 +127,6 @@ struct AIPolishSettingsView: View {
         }
     }
 
-    private var subscriptionProxySection: some View {
-        Section {
-            TextField("Proxy URL", text: $subscriptionProxyURL)
-                .textFieldStyle(.roundedBorder)
-                .autocorrectionDisabled()
-                .onChange(of: subscriptionProxyURL) { _, newValue in
-                    prefs.subscriptionProxyURL = newValue
-                }
-        } header: {
-            Text("Subscription Proxy")
-        } footer: {
-            Text("Runs the claude-sub-api daemon locally to convert Claude.ai / ChatGPT subscriptions into HTTP APIs.")
-        }
-    }
 
     private func ensureDefaultModel() {
         if llmModel.isEmpty { llmModel = LLMRewriter.defaultModel }

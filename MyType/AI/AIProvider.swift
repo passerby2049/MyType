@@ -16,9 +16,6 @@ struct AIProvider {
         /// Local Claude Code CLI — piggybacks on the user's Pro/Max
         /// subscription via subprocess.
         case claudeCode
-        /// Local proxy that converts Claude.ai / ChatGPT subscriptions
-        /// into HTTP APIs (the `claude-sub-api` Go binary).
-        case subscription
 
         var id: String { rawValue }
 
@@ -28,7 +25,6 @@ struct AIProvider {
             case .anthropic: return "Anthropic"
             case .googleAI: return "Google AI Studio"
             case .claudeCode: return "Claude Code (Local CLI)"
-            case .subscription: return "My Subscription (Local Proxy)"
             }
         }
     }
@@ -99,31 +95,16 @@ struct AIProvider {
         "gemini-2.5-flash-lite",
     ]
 
-    /// Claude Code CLI model shortcuts — prefixed `cc-` so
-    /// `provider(for:)` can route them to the subprocess stream. The
-    /// suffix (`opus` / `sonnet` / `haiku`) is passed through to the
-    /// `claude -p --model` flag verbatim.
+    /// Claude Code CLI models — prefixed `cc-` so `provider(for:)` routes
+    /// them to the warm `claude` session (ClaudeCodeVoicePolishSession,
+    /// started the way Otto starts its chat). `cc-opus` is Opus 5.5,
+    /// `cc-sonnet` Sonnet 5.5.
     static let claudeCodeModels = [
         "cc-opus",
         "cc-sonnet",
-        "cc-haiku",
-    ]
-
-    /// Local-proxy models — `sub-` prefix routes through the
-    /// `claude-sub-api` daemon. The suffix decides which subscription:
-    /// `sub-claude-*` → Anthropic Messages on `/v1/messages`,
-    /// `sub-gpt-*`    → OpenAI Responses on `/v1/responses`.
-    static let subscriptionModels = [
-        "sub-claude-opus-4-7",
-        "sub-claude-sonnet-4-6",
-        "sub-claude-haiku-4-5",
-        "sub-gpt-5",
-        "sub-gpt-5-codex",
-        "sub-gpt-5-mini",
     ]
 
     static func provider(for model: String) -> Provider {
-        if model.hasPrefix("sub-") { return .subscription }
         if model.hasPrefix("cc-") { return .claudeCode }
         if googleAIModels.contains(model) || (model.hasPrefix("gemini-") && !model.contains("/")) {
             return .googleAI
@@ -140,7 +121,6 @@ struct AIProvider {
         case .anthropic: return anthropicModels
         case .googleAI: return googleAIModels
         case .claudeCode: return claudeCodeModels
-        case .subscription: return subscriptionModels
         }
     }
 
@@ -186,8 +166,6 @@ struct AIProvider {
             return streamGoogleAI(prompt: prompt, model: model, temperature: temperature)
         case .claudeCode:
             preconditionFailure("Claude Code models must go through ClaudeCodeVoicePolishSession, not AIProvider.stream")
-        case .subscription:
-            return streamSubscription(prompt: prompt, model: model, temperature: temperature)
         }
     }
 

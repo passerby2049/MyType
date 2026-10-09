@@ -46,3 +46,4 @@ screenshots/
 # Eval: recordings, transcripts and downloads stay local
 eval/data/
 eval/*/.build/
+eval/seed-dump/seed-dump

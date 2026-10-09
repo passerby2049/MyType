@@ -75,9 +75,10 @@ enum TextPolisher {
         frontApp: String?
     ) async throws -> String {
         let effort = await MainActor.run { LLMRewriter.resolvedEffort }
+        let app = frontApp?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return try await ClaudeCodeVoicePolishSession.textPolish.polish(
-            text: text,
-            seedPrompt: buildSeedPrompt(frontApp: frontApp),
+            text: (app.isEmpty ? "" : "<app>\(app)</app>\n") + "<text>\n\(text)\n</text>",
+            systemPrompt: systemPrompt,
             model: model,
             effort: effort
         )
@@ -109,16 +110,22 @@ enum TextPolisher {
         return sections.joined(separator: "\n\n")
     }
 
-    private static func buildSeedPrompt(frontApp: String?) -> String {
-        var sections = ruleSections(frontApp: frontApp)
-        sections.append(
+    /// The warm session's system prompt: the rules, the same every time
+    /// (the app goes with each text), so it's cached and not respawned.
+    private static var systemPrompt: String {
+        (ruleSections(frontApp: nil) + [
             """
-            I will send you texts to polish, one at a time. For each \
-            message, return ONLY the polished text — no prose, no quotes, \
-            no labels. For now, just reply: ready
+            Adjust only the amount of formality and punctuation that naturally \
+            fits the app named in <app>: email apps can be more polished, chat \
+            apps can stay conversational, and coding tools should preserve \
+            technical wording and structure. Do not add facts, greetings, or \
+            sign-offs the user did not write.
+            """,
             """
-        )
-        return sections.joined(separator: "\n\n")
+            Each message is one text to polish, in <text>. Return ONLY the \
+            polished text - no prose, no quotes, no labels.
+            """,
+        ]).joined(separator: "\n\n")
     }
 
     private static func ruleSections(frontApp: String?) -> [String] {

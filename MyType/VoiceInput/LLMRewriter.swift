@@ -68,7 +68,7 @@ enum LLMRewriter {
     }
     /// Default when the user hasn't picked a model yet. Fast + cheap is
     /// the right shape for STT post-correction.
-    static let defaultModel = "google/gemini-2.5-flash"
+    static let defaultModel = "cc-sonnet"
 
     /// Resolve the model the user configured for voice-input post-processing.
     static var resolvedModel: String {
@@ -108,7 +108,7 @@ enum LLMRewriter {
         }
 
         // Claude Code CLI models reuse a warm session for voice polish
-        // (seeds the system prompt once, then ~1.7s/turn steady-state).
+        // (the rules are its cached system prompt; one transcript per turn).
         // All other providers still use the one-shot streaming path.
         if AIProvider.provider(for: model) == .claudeCode {
             return try await rewriteViaClaudeCodeSession(
@@ -157,18 +157,17 @@ enum LLMRewriter {
         vocabularyTerms: [String],
         frontApp: String?
     ) async throws -> String {
-        let seedPrompt = buildSeedPrompt(
+        let systemPrompt = buildSystemPrompt(
             language: language,
-            vocabularyTerms: vocabularyTerms,
-            frontApp: frontApp
+            vocabularyTerms: vocabularyTerms
         )
 
         logger.info("🤖 LLM session START — model=\(model, privacy: .public) input=\(rawText.count) chars")
 
         let started = Date.now
         let raw = try await ClaudeCodeVoicePolishSession.shared.polish(
-            text: rawText,
-            seedPrompt: seedPrompt,
+            text: sessionMessage(text: rawText, frontApp: frontApp),
+            systemPrompt: systemPrompt,
             model: model,
             effort: resolvedEffort
         )
