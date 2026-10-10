@@ -242,9 +242,9 @@ private struct SmokedGlass: View {
         ZStack {
             BehindWindowBlur(diameter: diameter)
             Capsule().fill(Color(red: 0.055, green: 0.055, blue: 0.07).opacity(Self.tint))
-            Capsule().strokeBorder(Color.white.opacity(0.22), lineWidth: 0.5)
+            Capsule().strokeBorder(Color.white.opacity(0.13), lineWidth: 0.5)
             Capsule().strokeBorder(
-                LinearGradient(colors: [Color.white.opacity(0.30), .clear], startPoint: .top, endPoint: .center),
+                LinearGradient(colors: [Color.white.opacity(0.20), .clear], startPoint: .top, endPoint: .center),
                 lineWidth: 1
             )
         }
