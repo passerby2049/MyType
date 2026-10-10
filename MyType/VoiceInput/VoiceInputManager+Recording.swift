@@ -51,6 +51,7 @@ extension VoiceInputManager {
 
             audioRecorder = recorder
             recordingStartTime = .now
+            levelHistory = []
             state = .recording
             logger.debug("recording STARTED")
             // Tell the global hotkey monitor to swallow Esc presses
@@ -146,6 +147,7 @@ extension VoiceInputManager {
                     // Typical range: -160 (silence) to 0 (max)
                     let normalizedLevel = max(0, (level + 50) / 50)
                     audioLevel = normalizedLevel
+                    levelHistory.append(normalizedLevel)
                     recordingDuration = recorder.currentTime
                 }
                 try? await Task.sleep(for: .milliseconds(100))

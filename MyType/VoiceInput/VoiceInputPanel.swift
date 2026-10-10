@@ -8,6 +8,10 @@ import SwiftUI
 // MARK: - NSPanel Wrapper
 
 final class VoiceInputPanel {
+    /// The transparent host around the 36pt capsule: room for the drop
+    /// shadow and, while processing, the cancel button to its left.
+    static let contentSize = CGSize(width: 240, height: 80)
+
     private var panel: NSPanel?
     private weak var manager: VoiceInputManager?
 
@@ -30,8 +34,8 @@ final class VoiceInputPanel {
         // doesn't float in the middle of the screen.
         guard let screen = Self.activeScreen() else { return }
         let screenFrame = screen.visibleFrame
-        let panelWidth: CGFloat = 200
-        let panelHeight: CGFloat = 80
+        let panelWidth = Self.contentSize.width
+        let panelHeight = Self.contentSize.height
         let x = screenFrame.midX - panelWidth / 2
         // visibleFrame already excludes the dock; add a small clearance
         // so the capsule sits just above it instead of touching.
@@ -101,7 +105,7 @@ final class VoiceInputPanel {
         guard let manager else { return }
 
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 200, height: 80),
+            contentRect: NSRect(origin: .zero, size: Self.contentSize),
             styleMask: [.nonactivatingPanel, .borderless],
             backing: .buffered,
             defer: false
