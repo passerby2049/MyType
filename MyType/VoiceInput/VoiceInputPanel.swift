@@ -66,7 +66,7 @@ final class VoiceInputPanel {
         let panelRef = panel
         panelRef.animations = [:]
         NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.15
+            ctx.duration = 0.25
             panelRef.animator().alphaValue = 0
         }, completionHandler: { [weak panelRef] in
             // Only order out if still invisible — a new showPanel

@@ -1,6 +1,7 @@
 // Abstract:
 // SwiftUI capsule UI for voice input overlay — waveform animation,
-// control buttons, and scan timer for processing state.
+// control buttons, scan timer while transcribing, and the polishing
+// ring / completion mark (VoiceInputPolishRing.swift).
 
 import SwiftUI
 
@@ -8,6 +9,7 @@ import SwiftUI
 
 struct VoiceInputOverlayView: View {
     var manager: VoiceInputManager
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var cancelHovered = false
     @State private var doneHovered = false
 
@@ -15,14 +17,90 @@ struct VoiceInputOverlayView: View {
     @State private var scanDirection: Int = 1
     @State private var scanTimer: Task<Void, Never>?
 
+    /// Which processing form is on screen. `.inserting` keeps the last
+    /// one, so delivery doesn't flash a different shape.
+    @State private var look: ProcessingLook = .scan
+    @State private var ringStart = Date.distantPast
+    @State private var doneStart = Date.distantPast
+    /// Set when `.done` arrives: the capsule fades and shrinks away.
+    @State private var exiting = false
+    /// The width the capsule had when it was dismissed, held while it
+    /// fades so it doesn't stretch back out; cleared once it's hidden.
+    @State private var dismissedWidth: CGFloat?
+
+    @State private var showsProcessingCancel = false
+    @State private var processingCancelTask: Task<Void, Never>?
+
+    private enum ProcessingLook { case scan, ring }
+
+    private var state: VoiceInputState { manager.state }
+    private static func isDismissed(_ state: VoiceInputState) -> Bool {
+        switch state {
+        case .idle, .failure: true
+        case .recording, .transcribing, .polishing, .inserting, .done: false
+        }
+    }
+    private var showsRing: Bool {
+        state == .polishing || (state == .inserting && look == .ring)
+    }
+    private var showsScan: Bool {
+        state == .transcribing || (state == .inserting && look == .scan)
+    }
+    /// Green mark only when the text really reached the target app —
+    /// not for a clipboard fallback or a failed insert.
+    private var delivered: Bool { manager.deliveryStatus == .inserted }
+
+    private var capsuleWidth: CGFloat { width(for: state) }
+
+    private func width(for state: VoiceInputState) -> CGFloat {
+        switch state {
+        case .polishing: 44
+        case .inserting: look == .ring ? 44 : 140
+        case .done: 36
+        case .idle, .failure: dismissedWidth ?? 140
+        case .recording, .transcribing: 140
+        }
+    }
+
+    /// Recording ↔ transcription keep their original spring; the ring,
+    /// completion and cancel use the design's calmer one (k=300, c=31).
+    private var shellAnimation: Animation {
+        if reduceMotion { return .easeInOut(duration: 0.15) }
+        switch state {
+        case .recording, .transcribing:
+            return .spring(response: 0.45, dampingFraction: 0.7)
+        case .inserting where look == .scan:
+            return .spring(response: 0.45, dampingFraction: 0.7)
+        case .idle, .failure:
+            return .easeOut(duration: 0.25)
+        case .polishing, .inserting, .done:
+            return .spring(response: 0.36, dampingFraction: 0.89)
+        }
+    }
+
     var body: some View {
-        let isDone = manager.state == .done
-        let isProcessing = manager.state.isProcessing
-        let isVisible = manager.state == .recording || manager.state.isProcessing || manager.state == .done
+        let isVisible = state == .recording || state.isProcessing || state == .done
 
-        let capsuleWidth: CGFloat = isDone ? 36 : 140
-        let capsuleHeight: CGFloat = 36
+        ZStack {
+            capsule
+            processingCancelButton
+                .offset(x: -(capsuleWidth / 2 + 43))
+        }
+        .opacity(isVisible && !exiting ? 1 : 0)
+        .scaleEffect(isVisible && !exiting ? 1 : (state == .done && delivered ? 0.9 : 0.88))
+        .animation(shellAnimation, value: state)
+        // Match the NSPanel content size
+        .frame(width: 200, height: 80)
+        .onChange(of: manager.state) { oldState, newState in
+            stateChanged(from: oldState, to: newState)
+        }
+        .onDisappear {
+            stopScanning()
+            processingCancelTask?.cancel()
+        }
+    }
 
+    private var capsule: some View {
         ZStack {
             // Morphing background — Capsule auto-adjusts corner radius
             Capsule()
@@ -33,51 +111,96 @@ struct VoiceInputOverlayView: View {
 
             // ── All contents always present, animated via opacity ──
 
-            let isRecording = manager.state == .recording
+            let isRecording = state == .recording
 
             // Cancel button (left) — slides out left when processing
             cancelButton
                 .opacity(isRecording ? 1 : 0)
                 .offset(x: isRecording ? -48 : -80)
 
-            // Waveform (center)
+            // Waveform (center) — live while recording, scanning while
+            // transcribing; fades as the ring winds in.
             VoiceInputWaveform(
                 level: manager.audioLevel,
-                scanning: isProcessing,
+                scanning: state.isProcessing,
                 scanPosition: scanPosition
             )
-            .opacity(isDone ? 0 : 1)
+            .opacity(isRecording || showsScan ? 1 : 0)
 
             // Done button (right) — slides out right when processing
             doneButton
                 .opacity(isRecording ? 1 : 0)
                 .offset(x: isRecording ? 48 : 80)
 
-            // Done checkmark — slides from right-button position to center
-            Image(systemName: "checkmark")
-                .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(Color(red: 0.20, green: 0.84, blue: 0.29))
-                .offset(x: isDone ? 0 : 48)
-                .opacity(isDone ? 1 : 0)
-        }
-        .frame(width: capsuleWidth, height: capsuleHeight)
-        .clipShape(Capsule())
-        .animation(.spring(response: 0.45, dampingFraction: 0.7), value: manager.state)
-        // Match the NSPanel content size
-        .frame(width: 200, height: 80)
-        .opacity(isVisible ? 1 : 0)
-        .onChange(of: manager.state) { _, newState in
-            if newState.isProcessing {
-                startScanning()
-            } else {
-                stopScanning()
+            if showsRing {
+                VoiceInputPolishRing(start: ringStart)
+                    .transition(.opacity)
             }
+
+            if state == .done && delivered {
+                VoiceInputCompletionMark(start: doneStart, fromRing: look == .ring)
+            }
+        }
+        .frame(width: capsuleWidth, height: 36)
+        .clipShape(Capsule())
+        .onHover { processingHover($0) }
+    }
+
+    // MARK: - State
+
+    private func stateChanged(from oldState: VoiceInputState, to newState: VoiceInputState) {
+        switch newState {
+        case .transcribing:
+            look = .scan
+        case .polishing:
+            look = .ring
+            ringStart = .now
+        case .idle, .failure:
+            dismissedWidth = width(for: oldState)
+            Task {
+                // After the panel's 0.25s fade: back to the resting shape.
+                try? await Task.sleep(for: .milliseconds(300))
+                guard Self.isDismissed(manager.state) else { return }
+                var reset = Transaction()
+                reset.disablesAnimations = true
+                withTransaction(reset) {
+                    dismissedWidth = nil
+                    look = .scan
+                }
+            }
+        case .recording:
+            dismissedWidth = nil
+            look = .scan
+        case .inserting, .done:
+            break
+        }
+
+        if showsScan { startScanning() } else { stopScanning() }
+
+        if !newState.canCancelProcessing || look != .ring {
+            processingCancelTask?.cancel()
+            showsProcessingCancel = false
+        }
+
+        if newState == .done {
+            doneStart = .now
+            // Delivered: hold the mark, fade from ~0.5s to ~0.8s.
+            // Otherwise: no success mark, just gather and fade.
+            let exit: Animation = delivered
+                ? .easeInOut(duration: 0.3).delay(0.5)
+                : .easeOut(duration: 0.25)
+            withAnimation(exit) { exiting = true }
+        } else if exiting {
+            var reset = Transaction()
+            reset.disablesAnimations = true
+            withTransaction(reset) { exiting = false }
         }
     }
 
     // MARK: - Scan Timer
 
     private func startScanning() {
+        guard scanTimer == nil else { return }
         scanPosition = -2
         scanDirection = 1
         scanTimer = Task {
@@ -98,6 +221,43 @@ struct VoiceInputOverlayView: View {
         scanTimer?.cancel()
         scanTimer = nil
         scanPosition = -2
+    }
+
+    // MARK: - Processing Cancel
+
+    /// While the ring is up, hovering the capsule reveals a separate
+    /// cancel button to its left (~150 ms in, ~280 ms grace on leave so
+    /// the pointer can reach it). Esc cancels as before.
+    private func processingHover(_ inside: Bool) {
+        processingCancelTask?.cancel()
+        guard state.canCancelProcessing, look == .ring else { return }
+        processingCancelTask = Task {
+            try? await Task.sleep(for: .milliseconds(inside ? 150 : 280))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.15)) { showsProcessingCancel = inside }
+        }
+    }
+
+    private var processingCancelButton: some View {
+        Button {
+            manager.cancelRecording()
+        } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(Color(white: 0.69))
+                .frame(width: 30, height: 30)
+                .background(Circle().fill(Color.black))
+                .overlay(Circle().strokeBorder(Color.white.opacity(0.09), lineWidth: 0.5))
+                .contentShape(.circle)
+        }
+        .buttonStyle(.plain)
+        .onHover { processingHover($0) }
+        .help("取消 · Esc")
+        .accessibilityLabel("Cancel processing")
+        .opacity(showsProcessingCancel ? 1 : 0)
+        .offset(x: showsProcessingCancel ? 0 : 5)
+        .allowsHitTesting(showsProcessingCancel)
+        .disabled(!showsProcessingCancel)
     }
 
     // MARK: - Buttons

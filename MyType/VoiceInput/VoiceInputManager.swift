@@ -55,6 +55,9 @@ final class VoiceInputManager {
     var state: VoiceInputState = .idle
     var audioLevel: Float = 0  // 0.0 - 1.0
     var recordingDuration: TimeInterval = 0
+    /// How the last dictation was delivered. The overlay shows its
+    /// success mark only for `.inserted`; nil until a delivery returns.
+    var deliveryStatus: VoiceInputInsertStatus?
 
     // MARK: - Configuration Constants
 
@@ -215,6 +218,7 @@ final class VoiceInputManager {
 
         do {
             // Step 1: Transcribe using the configured engine
+            deliveryStatus = nil
             state = .transcribing
             updateOverlay()
             let sttStart = Date()
@@ -292,6 +296,7 @@ final class VoiceInputManager {
                         targetPID: capturedTargetPID,
                         targetName: capturedTargetName
                     )
+                    deliveryStatus = injection.status
                     let vocabularyHitCount = VocabularyStore.shared.recordHits(in: polished)
                     let record = VoiceInputRecord(
                         id: id, text: polished, rawTranscript: rawText,
@@ -319,6 +324,7 @@ final class VoiceInputManager {
                         targetPID: capturedTargetPID,
                         targetName: capturedTargetName
                     )
+                    deliveryStatus = injection.status
                     let vocabularyHitCount = VocabularyStore.shared.recordHits(in: optimizedText)
                     let record = VoiceInputRecord(
                         id: id, text: optimizedText, rawTranscript: rawText,
@@ -370,6 +376,7 @@ final class VoiceInputManager {
                     targetPID: capturedTargetPID,
                     targetName: capturedTargetName
                 )
+                deliveryStatus = injection.status
                 let vocabularyHitCount = VocabularyStore.shared.recordHits(in: optimizedText)
                 let record = VoiceInputRecord(
                     id: id, text: optimizedText, rawTranscript: rawText,
@@ -391,9 +398,10 @@ final class VoiceInputManager {
             hotkeyMonitor.shouldInterceptEscape = false
             updateOverlay()
 
-            // Auto-hide overlay after a short delay
+            // Hide once the overlay's completion feedback has played
+            // (it fades itself out by ~0.8s; see VoiceInputCompletionMark).
             Task {
-                try? await Task.sleep(for: .seconds(1))
+                try? await Task.sleep(for: .milliseconds(850))
                 if self.state == .done {
                     self.state = .idle
                     self.hideOverlay()
