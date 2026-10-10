@@ -1,8 +1,9 @@
 // Abstract:
-// SwiftUI capsule UI for voice input overlay — the live waveform and
-// control buttons while recording; after that, one continuous motion
+// SwiftUI capsule UI for voice input overlay: a small smoked-glass pill
+// holding only the waveform while recording, then one continuous motion
 // (VoiceInputProcessingMotion): the recording's real loudness while it
-// is transcribed, the polishing ring, and the completion mark.
+// is transcribed, the polishing ring, and the completion mark. Cancel
+// and stop bud out of the pill's sides on hover.
 
 import SwiftUI
 
@@ -11,8 +12,7 @@ import SwiftUI
 struct VoiceInputOverlayView: View {
     var manager: VoiceInputManager
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var cancelHovered = false
-    @State private var doneHovered = false
+    @Namespace private var glassSpace
 
     @State private var motion = VoiceInputProcessingMotion()
     @State private var motionPhase: VoiceInputProcessingMotion.Phase = .reading
@@ -26,35 +26,36 @@ struct VoiceInputOverlayView: View {
     /// fades so it doesn't stretch back out; cleared once it's hidden.
     @State private var dismissedWidth: CGFloat?
 
-    @State private var showsProcessingCancel = false
-    @State private var processingCancelTask: Task<Void, Never>?
+    @State private var showsControls = false
+    @State private var hoverTask: Task<Void, Never>?
 
     private var state: VoiceInputState { manager.state }
     /// Green mark only when the text really reached the target app —
     /// not for a clipboard fallback or a failed insert.
     private var delivered: Bool { manager.deliveryStatus == .inserted }
+    /// Cancel is offered while recording, transcribing or polishing;
+    /// stop only while recording.
+    private var controlsAvailable: Bool { state == .recording || state.canCancelProcessing }
 
     private var capsuleWidth: CGFloat { width(for: state) }
 
     private func width(for state: VoiceInputState) -> CGFloat {
         switch state {
-        case .recording: 140
-        case .transcribing: 104
+        case .recording: 96
+        case .transcribing: 88
         case .polishing: 44
-        case .inserting: polished ? 44 : 104
+        case .inserting: polished ? 44 : 88
         case .done: 36
-        case .idle, .failure: dismissedWidth ?? 140
+        case .idle, .failure: dismissedWidth ?? 96
         }
     }
 
     private var shellAnimation: Animation {
         if reduceMotion { return .easeInOut(duration: 0.15) }
         switch state {
-        case .recording:
-            return .spring(response: 0.45, dampingFraction: 0.7)
         case .idle, .failure:
             return .easeOut(duration: 0.25)
-        case .transcribing, .polishing, .inserting, .done:
+        case .recording, .transcribing, .polishing, .inserting, .done:
             // The design's spring (k=300, c=31), shared with the marks.
             return .spring(response: 0.36, dampingFraction: 0.89)
         }
@@ -63,10 +64,22 @@ struct VoiceInputOverlayView: View {
     var body: some View {
         let isVisible = state == .recording || state.isProcessing || state == .done
 
-        ZStack {
-            capsule
-            processingCancelButton
-                .offset(x: -(capsuleWidth / 2 + 43))
+        GlassEffectContainer(spacing: 20) {
+            ZStack {
+                pill
+                    .glassEffectID("pill", in: glassSpace)
+
+                if showsControls {
+                    controlButton("xmark", label: "Cancel") { manager.cancelRecording() }
+                        .glassEffectID("cancel", in: glassSpace)
+                        .offset(x: -(capsuleWidth / 2 + 20))
+                    if state == .recording {
+                        controlButton("stop.fill", label: "Finish recording") { manager.toggleRecording() }
+                            .glassEffectID("stop", in: glassSpace)
+                            .offset(x: capsuleWidth / 2 + 20)
+                    }
+                }
+            }
         }
         .opacity(isVisible && !exiting ? 1 : 0)
         .scaleEffect(isVisible && !exiting ? 1 : (state == .done && delivered ? 0.9 : 0.88))
@@ -76,28 +89,14 @@ struct VoiceInputOverlayView: View {
         .onChange(of: manager.state) { oldState, newState in
             stateChanged(from: oldState, to: newState)
         }
-        .onDisappear { processingCancelTask?.cancel() }
+        .onDisappear { hoverTask?.cancel() }
     }
 
-    private var capsule: some View {
+    private var pill: some View {
         ZStack {
-            // Morphing background — Capsule auto-adjusts corner radius
-            Capsule()
-                .fill(Color.black)
-
-            Capsule()
-                .strokeBorder(Color.white.opacity(0.05), lineWidth: 0.5)
-
-            let isRecording = state == .recording
-
-            // Cancel button (left) — slides out left when processing
-            cancelButton
-                .opacity(isRecording ? 1 : 0)
-                .offset(x: isRecording ? -48 : -80)
-
             // Live waveform. Leaves at once when recording ends: the
             // motion's marks take over in the same places.
-            if isRecording {
+            if state == .recording {
                 VoiceInputWaveform(level: manager.audioLevel)
                     .transition(.identity)
             }
@@ -106,15 +105,45 @@ struct VoiceInputOverlayView: View {
                 VoiceInputProcessingView(motion: motion, phase: motionPhase)
                     .frame(width: 140, height: 36)
             }
-
-            // Done button (right) — slides out right when processing
-            doneButton
-                .opacity(isRecording ? 1 : 0)
-                .offset(x: isRecording ? 48 : 80)
         }
         .frame(width: capsuleWidth, height: 36)
         .clipShape(Capsule())
-        .onHover { processingHover($0) }
+        .overlayGlass(in: Capsule())
+        .contentShape(Capsule())
+        .onHover { hover($0) }
+    }
+
+    private func controlButton(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: symbol == "xmark" ? 10 : 9, weight: .semibold))
+                .foregroundStyle(Color(white: 0.78))
+                .frame(width: 28, height: 28)
+                .contentShape(.circle)
+        }
+        .buttonStyle(.plain)
+        .overlayGlass(in: Circle(), interactive: true)
+        .onHover { hover($0) }
+        .help(symbol == "xmark" ? "取消 · Esc" : "结束 · fn")
+        .accessibilityLabel(label)
+    }
+
+    // MARK: - Hover
+
+    /// Hovering the pill buds cancel (and, while recording, stop) out of
+    /// its sides after ~150 ms; leaving gives ~280 ms of grace so the
+    /// pointer can reach them. Esc and fn work as before.
+    private func hover(_ inside: Bool) {
+        hoverTask?.cancel()
+        guard controlsAvailable || !inside else { return }
+        hoverTask = Task {
+            try? await Task.sleep(for: .milliseconds(inside ? 150 : 280))
+            guard !Task.isCancelled else { return }
+            let show = inside && controlsAvailable
+            withAnimation(reduceMotion ? .easeInOut(duration: 0.15) : .spring(response: 0.32, dampingFraction: 0.8)) {
+                showsControls = show
+            }
+        }
     }
 
     // MARK: - State
@@ -158,9 +187,11 @@ struct VoiceInputOverlayView: View {
             }
         }
 
-        if !newState.canCancelProcessing {
-            processingCancelTask?.cancel()
-            showsProcessingCancel = false
+        // Stop leaves with recording; cancel leaves once nothing can be
+        // cancelled (inserting, done, dismissed).
+        if !(newState == .recording || newState.canCancelProcessing) {
+            hoverTask?.cancel()
+            showsControls = false
         }
 
         if newState == .done {
@@ -189,85 +220,31 @@ struct VoiceInputOverlayView: View {
         case .recording, .transcribing, .polishing, .inserting, .done: false
         }
     }
+}
 
-    // MARK: - Processing Cancel
+// MARK: - Smoked Glass
 
-    /// While transcribing or polishing, hovering the capsule reveals a
-    /// separate cancel button to its left (~150 ms in, ~280 ms grace on
-    /// leave so the pointer can reach it). Esc cancels as before.
-    private func processingHover(_ inside: Bool) {
-        processingCancelTask?.cancel()
-        guard state.canCancelProcessing else { return }
-        processingCancelTask = Task {
-            try? await Task.sleep(for: .milliseconds(inside ? 150 : 280))
-            guard !Task.isCancelled, manager.state.canCancelProcessing else { return }
-            withAnimation(.easeOut(duration: 0.15)) { showsProcessingCancel = inside }
+private struct OverlayGlass<S: Shape>: ViewModifier {
+    let shape: S
+    let interactive: Bool
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    /// Dark enough that the amber marks stay clear over a white window,
+    /// light enough that the background still shows through.
+    private static var tint: Color { Color.black.opacity(0.8) }
+
+    func body(content: Content) -> some View {
+        if reduceTransparency {
+            content.background(shape.fill(Color.black))
+        } else {
+            content.glassEffect(.regular.tint(Self.tint).interactive(interactive), in: shape)
         }
     }
+}
 
-    private var processingCancelButton: some View {
-        Button {
-            manager.cancelRecording()
-        } label: {
-            Image(systemName: "xmark")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(Color(white: 0.69))
-                .frame(width: 30, height: 30)
-                .background(Circle().fill(Color.black))
-                .overlay(Circle().strokeBorder(Color.white.opacity(0.09), lineWidth: 0.5))
-                .contentShape(.circle)
-        }
-        .buttonStyle(.plain)
-        .onHover { processingHover($0) }
-        .help("取消 · Esc")
-        .accessibilityLabel("Cancel processing")
-        .opacity(showsProcessingCancel ? 1 : 0)
-        .offset(x: showsProcessingCancel ? 0 : 5)
-        .allowsHitTesting(showsProcessingCancel)
-        .disabled(!showsProcessingCancel)
-    }
-
-    // MARK: - Buttons
-
-    private var cancelButton: some View {
-        Button {
-            manager.cancelRecording()
-        } label: {
-            Image(systemName: "xmark")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(Color(red: 1.0, green: 0.27, blue: 0.23))
-                .frame(width: 30, height: 30)
-                .background(
-                    Circle()
-                        .fill(Color(red: 1.0, green: 0.27, blue: 0.23).opacity(cancelHovered ? 0.15 : 0))
-                )
-                .contentShape(.circle)
-        }
-        .buttonStyle(.plain)
-        .onHover { cancelHovered = $0 }
-        .accessibilityLabel("Cancel recording")
-        // Stop clicks when hidden
-        .disabled(manager.state != .recording)
-    }
-
-    private var doneButton: some View {
-        Button {
-            manager.toggleRecording()
-        } label: {
-            Image(systemName: "checkmark")
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(Color(red: 0.20, green: 0.84, blue: 0.29))
-                .frame(width: 30, height: 30)
-                .background(
-                    Circle()
-                        .fill(Color(red: 0.20, green: 0.84, blue: 0.29).opacity(doneHovered ? 0.15 : 0))
-                )
-                .contentShape(.circle)
-        }
-        .buttonStyle(.plain)
-        .onHover { doneHovered = $0 }
-        .accessibilityLabel("Finish recording")
-        .disabled(manager.state != .recording)
+private extension View {
+    func overlayGlass(in shape: some Shape, interactive: Bool = false) -> some View {
+        modifier(OverlayGlass(shape: shape, interactive: interactive))
     }
 }
 
