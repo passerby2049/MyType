@@ -5,6 +5,7 @@
 // is transcribed, the polishing ring, and the completion mark. Cancel
 // and stop bud out of the pill's sides on hover.
 
+import AppKit
 import SwiftUI
 
 // MARK: - SwiftUI Overlay View
@@ -12,7 +13,6 @@ import SwiftUI
 struct VoiceInputOverlayView: View {
     var manager: VoiceInputManager
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Namespace private var glassSpace
 
     @State private var motion = VoiceInputProcessingMotion()
     @State private var motionPhase: VoiceInputProcessingMotion.Phase = .reading
@@ -64,20 +64,17 @@ struct VoiceInputOverlayView: View {
     var body: some View {
         let isVisible = state == .recording || state.isProcessing || state == .done
 
-        GlassEffectContainer(spacing: 20) {
-            ZStack {
-                pill
-                    .glassEffectID("pill", in: glassSpace)
+        ZStack {
+            pill
 
-                if showsControls {
-                    controlButton("xmark", label: "Cancel") { manager.cancelRecording() }
-                        .glassEffectID("cancel", in: glassSpace)
-                        .offset(x: -(capsuleWidth / 2 + 20))
-                    if state == .recording {
-                        controlButton("stop.fill", label: "Finish recording") { manager.toggleRecording() }
-                            .glassEffectID("stop", in: glassSpace)
-                            .offset(x: capsuleWidth / 2 + 20)
-                    }
+            if showsControls {
+                controlButton("xmark", label: "Cancel") { manager.cancelRecording() }
+                    .transition(Self.bud(fromRight: true))
+                    .offset(x: -(capsuleWidth / 2 + 20))
+                if state == .recording {
+                    controlButton("stop.fill", label: "Finish recording") { manager.toggleRecording() }
+                        .transition(Self.bud(fromRight: false))
+                        .offset(x: capsuleWidth / 2 + 20)
                 }
             }
         }
@@ -108,7 +105,7 @@ struct VoiceInputOverlayView: View {
         }
         .frame(width: capsuleWidth, height: 36)
         .clipShape(Capsule())
-        .overlayGlass(in: Capsule())
+        .background(SmokedGlass(diameter: 36))
         .contentShape(Capsule())
         .onHover { hover($0) }
     }
@@ -122,10 +119,16 @@ struct VoiceInputOverlayView: View {
                 .contentShape(.circle)
         }
         .buttonStyle(.plain)
-        .overlayGlass(in: Circle(), interactive: true)
+        .background(SmokedGlass(diameter: 28))
         .onHover { hover($0) }
         .help(symbol == "xmark" ? "取消 · Esc" : "结束 · fn")
         .accessibilityLabel(label)
+    }
+
+    /// A button buds out of the pill's edge: from small, near the pill,
+    /// to its place beside it.
+    private static func bud(fromRight: Bool) -> AnyTransition {
+        .scale(scale: 0.45).combined(with: .offset(x: fromRight ? 22 : -22)).combined(with: .opacity)
     }
 
     // MARK: - Hover
@@ -224,27 +227,57 @@ struct VoiceInputOverlayView: View {
 
 // MARK: - Smoked Glass
 
-private struct OverlayGlass<S: Shape>: ViewModifier {
-    let shape: S
-    let interactive: Bool
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+/// The pill's material: what's behind the window, blurred
+/// (NSVisualEffectView, behind-window), under a smoked tint dark enough
+/// that the amber marks stay clear over a white window; a hairline rim
+/// and a faint top highlight. Ends are round: `diameter` is the height.
+/// Under Reduce Transparency the blur turns opaque on its own.
+private struct SmokedGlass: View {
+    let diameter: CGFloat
+    /// How much of the smoke covers the blur (the design page's ① is 0.8
+    /// over a plain blur; the HUD material is already dark itself).
+    static let tint = 0.65
 
-    /// Dark enough that the amber marks stay clear over a white window,
-    /// light enough that the background still shows through.
-    private static var tint: Color { Color.black.opacity(0.8) }
-
-    func body(content: Content) -> some View {
-        if reduceTransparency {
-            content.background(shape.fill(Color.black))
-        } else {
-            content.glassEffect(.regular.tint(Self.tint).interactive(interactive), in: shape)
+    var body: some View {
+        ZStack {
+            BehindWindowBlur(diameter: diameter)
+            Capsule().fill(Color(red: 0.055, green: 0.055, blue: 0.07).opacity(Self.tint))
+            Capsule().strokeBorder(Color.white.opacity(0.22), lineWidth: 0.5)
+            Capsule().strokeBorder(
+                LinearGradient(colors: [Color.white.opacity(0.30), .clear], startPoint: .top, endPoint: .center),
+                lineWidth: 1
+            )
         }
+        .allowsHitTesting(false)
     }
 }
 
-private extension View {
-    func overlayGlass(in shape: some Shape, interactive: Bool = false) -> some View {
-        modifier(OverlayGlass(shape: shape, interactive: interactive))
+private struct BehindWindowBlur: NSViewRepresentable {
+    let diameter: CGFloat
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .hudWindow
+        view.blendingMode = .behindWindow
+        view.state = .active
+        view.appearance = NSAppearance(named: .darkAqua)
+        // SwiftUI clipping doesn't reach a behind-window blur; a
+        // stretchable round mask keeps it a capsule at any width.
+        view.maskImage = Self.capsuleMask(diameter)
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
+
+    private static func capsuleMask(_ d: CGFloat) -> NSImage {
+        let image = NSImage(size: NSSize(width: d, height: d), flipped: false) { rect in
+            NSColor.black.setFill()
+            NSBezierPath(ovalIn: rect).fill()
+            return true
+        }
+        image.capInsets = NSEdgeInsets(top: d / 2, left: d / 2, bottom: d / 2, right: d / 2)
+        image.resizingMode = .stretch
+        return image
     }
 }
 
