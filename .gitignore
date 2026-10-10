@@ -46,6 +46,7 @@ screenshots/
 # Eval: recordings, transcripts and downloads stay local
 eval/data/
 eval/*/.build/
+eval/*/.xbuild/
 eval/seed-dump/seed-dump
 eval/guard-check/guard-check
 eval/align-check/align-check
