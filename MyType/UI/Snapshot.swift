@@ -54,6 +54,30 @@ enum Snapshot {
                 }
             }
         }
+        // The overlay's cards and the polish preview, on a desktop-like ground.
+        let samples: [ProblemCard.Problem] = [.copied, .polishTimeout, .polishArrived("x"), .insertFailed("x"), .noSpeech]
+        let preview = PolishPreviewViewModel()
+        preview.state = .content("特别是 hotkey monitor 里关于 fn 键状态恢复的部分，有没有漏掉的情况？",
+                                 original: "特别是那个 hotkey monitor 里面关于 fn 键状态恢复的部分有没有漏掉的情况",
+                                 footnote: "Claude Sonnet · 1.6 秒")
+        let scene = VStack(spacing: 14) {
+            PolishPreviewView(model: preview)
+            ForEach(samples.indices, id: \.self) { i in
+                let model = ProblemCardModel()
+                let _ = { model.problem = samples[i] }()
+                ProblemCardView(model: model, hover: { _ in })
+            }
+        }
+        .padding(40)
+        .frame(width: 980, height: 660)
+        .background(LinearGradient(colors: [Color(red: 0.79, green: 0.84, blue: 0.89), Color(red: 0.85, green: 0.81, blue: 0.88)], startPoint: .topLeading, endPoint: .bottomTrailing))
+        window.contentView = NSHostingView(rootView: scene)
+        settle(0.8)
+        if let view = window.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+            view.cacheDisplay(in: view.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: url.appendingPathComponent("overlay-cards.png"))
+        }
+
         // The menu bar menu, as text.
         let menu = NSMenu()
         let controller = StatusMenuController()

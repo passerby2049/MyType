@@ -16,6 +16,7 @@ extension VoiceInputManager {
 
     func startRecording() {
         logger.debug("setting up recorder")
+        ProblemCard.shared.dismiss()
         let id = UUID()
         currentRecordingID = id
 
@@ -77,8 +78,8 @@ extension VoiceInputManager {
 
             logger.info("Started recording: \(id)")
         } catch {
-            logger.error("Failed to start recording: \(error) — dismissing silently")
-            silentlyDismiss()
+            logger.error("Failed to start recording: \(error) — dismissing")
+            silentlyDismiss(.recordingFailed(error.localizedDescription))
         }
     }
 

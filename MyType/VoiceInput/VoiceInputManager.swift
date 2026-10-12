@@ -78,6 +78,8 @@ final class VoiceInputManager {
     var levelTimer: Task<Void, Never>?
     var processingTask: Task<Void, Never>?
     private var overlayPanel: VoiceInputPanel?
+    /// This round's polish missed the timeout (raw text typed).
+    @ObservationIgnored private var polishTimedOutThisRound = false
 
     /// Target app captured at recording start. We snapshot it BEFORE the
     /// user can interact with the overlay so clicks on the buttons don't
@@ -220,14 +222,26 @@ final class VoiceInputManager {
         logger.info("Processing cancelled by user")
     }
 
-    /// Dismiss the overlay silently — used when transcription fails or
-    /// produces no content. No popup, no error sound, nothing left on
-    /// screen. The audio file is also cleaned up.
-    func silentlyDismiss() {
+    /// Dismiss the overlay — used when transcription fails or produces no
+    /// content. The audio file is cleaned up. With a `problem`, the card
+    /// above the pill says what happened (nothing for a tap too short).
+    func silentlyDismiss(_ problem: ProblemCard.Problem? = nil) {
         stopRecorderAndTimer()
         cleanupCurrentRecording()
         state = .idle
         hideOverlay()
+        if let problem { ProblemCard.shared.show(problem) }
+    }
+
+    /// The card above the pill when the text didn't end up typed as polished.
+    private func showDeliveryProblem(_ status: VoiceInputInsertStatus, text: String) {
+        let timedOut = polishTimedOutThisRound
+        polishTimedOutThisRound = false
+        switch status {
+        case .copiedFallback: ProblemCard.shared.show(.copied)
+        case .failed: ProblemCard.shared.show(.insertFailed(text))
+        case .inserted: if timedOut { ProblemCard.shared.show(.polishTimeout) }
+        }
     }
 
     /// One line per dictation: where the time between letting go of the key
@@ -269,8 +283,8 @@ final class VoiceInputManager {
             try Task.checkCancellation()
 
             guard !rawText.isEmpty else {
-                logger.info("No speech detected — dismissing silently")
-                silentlyDismiss()
+                logger.info("No speech detected — dismissing")
+                silentlyDismiss(.noSpeech)
                 return
             }
 
@@ -342,6 +356,7 @@ final class VoiceInputManager {
                         targetName: capturedTargetName
                     )
                     deliveryStatus = injection.status
+                    showDeliveryProblem(injection.status, text: injection.typedText)
                     logTiming(stoppedAt: stoppedAt, stt: sttTime, polish: llmTime)
                     let vocabularyHitCount = VocabularyStore.shared.recordHits(in: polished)
                     var record = VoiceInputRecord(
@@ -364,6 +379,7 @@ final class VoiceInputManager {
                     // returns, update history so the polished version
                     // isn't lost just because we missed the 10s window.
                     logger.warning("LLM polish didn't return within 10s — injecting raw text first")
+                    polishTimedOutThisRound = true
 
                     state = .inserting
                     updateOverlay()
@@ -374,6 +390,7 @@ final class VoiceInputManager {
                         targetName: capturedTargetName
                     )
                     deliveryStatus = injection.status
+                    showDeliveryProblem(injection.status, text: injection.typedText)
                     logTiming(stoppedAt: stoppedAt, stt: sttTime, polish: llmTime)
                     let vocabularyHitCount = VocabularyStore.shared.recordHits(in: optimizedText)
                     var record = VoiceInputRecord(
@@ -398,6 +415,7 @@ final class VoiceInputManager {
                                 let totalTime = Date().timeIntervalSince(llmStart)
                                 let wasRewritten = polished != optimizedText
                                 logger.info("LLM polish late result in \(String(format: "%.1f", totalTime))s — updating history")
+                                if wasRewritten { ProblemCard.shared.polishArrived(polished) }
                                 VoiceInputStore.shared.update(id) { rec in
                                     rec.text = polished
                                     rec.wasRewritten = wasRewritten
@@ -430,6 +448,7 @@ final class VoiceInputManager {
                     targetName: capturedTargetName
                 )
                 deliveryStatus = injection.status
+                showDeliveryProblem(injection.status, text: injection.typedText)
                 logTiming(stoppedAt: stoppedAt, stt: sttTime, polish: nil)
                 let vocabularyHitCount = VocabularyStore.shared.recordHits(in: optimizedText)
                 var record = VoiceInputRecord(
@@ -468,8 +487,8 @@ final class VoiceInputManager {
         } catch is CancellationError {
             logger.info("Processing cancelled")
         } catch {
-            logger.error("Processing failed: \(error) — dismissing silently")
-            silentlyDismiss()
+            logger.error("Processing failed: \(error) — dismissing")
+            silentlyDismiss(.failed(error.localizedDescription))
         }
     }
 

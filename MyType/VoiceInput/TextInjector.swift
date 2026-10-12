@@ -19,6 +19,8 @@ struct TextInjectionResult {
     let status: VoiceInputInsertStatus
     /// When typing finished, for the record's typing time.
     var finishedAt = Date()
+    /// What was to be typed (for the "didn't type" card's copy button).
+    var typedText = ""
 }
 
 enum TextInjector {
@@ -68,13 +70,14 @@ enum TextInjector {
 
         logger.info("Typing into \(targetName ?? "unknown") (pid=\(targetPID ?? -1)): \(text.count) chars")
         if typeUnicodeString(text) {
-            return TextInjectionResult(targetApp: targetName, status: .inserted)
+            return TextInjectionResult(targetApp: targetName, status: .inserted, typedText: text)
         }
 
         logger.warning("Unicode typing failed — copied text to clipboard fallback")
         return TextInjectionResult(
             targetApp: targetName,
-            status: copyFallback(text) ? .copiedFallback : .failed
+            status: copyFallback(text) ? .copiedFallback : .failed,
+            typedText: text
         )
     }
 

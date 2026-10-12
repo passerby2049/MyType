@@ -168,6 +168,7 @@ extension VoiceInputManager {
         // press resolves it.
         session.llmTask = Task { @MainActor [weak session] in
             do {
+                let polishStart = Date()
                 let polished = try await TextPolisher.polish(
                     selectedText,
                     frontApp: capturedTargetName
@@ -177,7 +178,9 @@ extension VoiceInputManager {
                 session.llmCompleted(polished, original: selectedText)
                 if polished != selectedText {
                     let freshAnchor = AXSelectionLocator.selectionScreenRect() ?? anchorAXRect
-                    PolishPreviewPanel.shared.showContent(polished, anchorAXRect: freshAnchor)
+                    let footnote = AIModelNames.display(LLMRewriter.resolvedModel)
+                        + String(format: " · %.1f 秒", Date().timeIntervalSince(polishStart))
+                    PolishPreviewPanel.shared.showContent(polished, original: selectedText, footnote: footnote, anchorAXRect: freshAnchor)
                 }
             } catch is CancellationError {
                 // User cancelled during loading — outcome already set.

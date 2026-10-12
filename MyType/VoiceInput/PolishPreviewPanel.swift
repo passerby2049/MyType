@@ -92,10 +92,10 @@ final class PolishPreviewPanel {
         animateIn(panel)
     }
 
-    func showContent(_ text: String, anchorAXRect: CGRect?) {
+    func showContent(_ text: String, original: String, footnote: String, anchorAXRect: CGRect?) {
         guard let panel else { return }
         if let r = anchorAXRect { lastAnchorAXRect = r }
-        model.state = .content(text)
+        model.state = .content(text, original: original, footnote: footnote)
 
         // Defer measurement so SwiftUI applies the new state before we
         // ask for its fitting size.
