@@ -26,6 +26,8 @@ struct MyTypeMain {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
+    private let statusMenu = NSMenu()
+    private let statusMenuController = StatusMenuController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if let dir = Snapshot.directory {
@@ -83,48 +85,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.setAccessibilityLabel("MyType")
         }
 
-        let menu = NSMenu()
-
-        let titleItem = menu.addItem(
-            withTitle: "MyType — Voice Input",
-            action: nil, keyEquivalent: ""
-        )
-        titleItem.isEnabled = false
-
-        menu.addItem(.separator())
-
-        let settingsItem = menu.addItem(
-            withTitle: "Settings…",
-            action: #selector(openSettings),
-            keyEquivalent: ","
-        )
-        settingsItem.target = self
-        settingsItem.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: nil)
-
-        let historyItem = menu.addItem(
-            withTitle: "History…",
-            action: #selector(openHistory),
-            keyEquivalent: "h"
-        )
-        historyItem.target = self
-        historyItem.image = NSImage(systemSymbolName: "list.bullet", accessibilityDescription: nil)
-
-        let statsItem = menu.addItem(
-            withTitle: "Statistics…",
-            action: #selector(openStats),
-            keyEquivalent: ""
-        )
-        statsItem.target = self
-        statsItem.image = NSImage(systemSymbolName: "chart.bar.xaxis", accessibilityDescription: nil)
-
-        menu.addItem(.separator())
-        menu.addItem(
-            withTitle: "Quit MyType",
-            action: #selector(NSApplication.terminate(_:)),
-            keyEquivalent: "q"
-        )
-
-        statusItem.menu = menu
+        statusMenu.delegate = statusMenuController
+        statusMenu.autoenablesItems = false
+        statusItem.menu = statusMenu
+        statusMenuController.statusItem = statusItem
+        statusMenuController.watchRecordingState()
     }
 
     // MARK: - Windows

@@ -117,6 +117,11 @@ final class VoiceInputManager {
                 self?.cancelRecording()
             }
         }
+        hotkeyMonitor.onRetypeLastPressed = { [weak self] in
+            Task { @MainActor in
+                self?.retypeLast()
+            }
+        }
         hotkeyMonitor.onPolishHotkeyPressed = { [weak self] in
             Task { @MainActor in
                 self?.polishSelectedText()
@@ -160,6 +165,28 @@ final class VoiceInputManager {
             // bounce or an early start on the next — it used to cancel and
             // throw away what was just said. Esc and the overlay's ✕ cancel.
             logger.info("Hotkey ignored — still finishing (\(String(describing: self.state)))")
+        }
+    }
+
+    /// ⌃⌥V and the menu: type the last dictation again where the user is.
+    func retypeLast() {
+        guard let last = VoiceInputStore.shared.records.max(by: { $0.createdAt < $1.createdAt }) else { return }
+        retypeIntoFrontmost(last)
+    }
+
+    /// Type a past dictation into the frontmost app (not into MyType). Waits
+    /// for the hotkey's modifiers to come up so they don't join the typing.
+    func retypeIntoFrontmost(_ record: VoiceInputRecord) {
+        guard !state.isProcessing, state != .recording else { return }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(180))
+            let front = NSWorkspace.shared.frontmostApplication
+            let ours = front?.processIdentifier == ProcessInfo.processInfo.processIdentifier
+            _ = await TextInjector.inject(
+                record.text.isEmpty ? record.rawTranscript : record.text,
+                targetPID: ours ? nil : front?.processIdentifier,
+                targetName: ours ? nil : front?.localizedName
+            )
         }
     }
 

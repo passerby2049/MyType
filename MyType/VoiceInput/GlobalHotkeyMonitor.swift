@@ -31,6 +31,8 @@ private let kEscapeKeyCode: Int = 53
 /// The Space key's virtual key code — combined with fn to trigger
 /// the "polish selected text" action.
 private let kSpaceKeyCode: Int = 49
+/// The V key — ⌃⌥V types the last dictation again.
+private let kVKeyCode: Int = 9
 /// The Return / Enter key's virtual key code — used to accept the
 /// polish preview when it's showing.
 private let kReturnKeyCode: Int = 36
@@ -58,6 +60,9 @@ final class GlobalHotkeyMonitor {
 
     /// Callback fired when Escape is pressed while recording is active.
     var onCancelPressed: (() -> Void)?
+
+    /// Callback fired on ⌃⌥V (type the last dictation again).
+    var onRetypeLastPressed: (() -> Void)?
 
     /// Callback fired when fn+space is pressed (polish selected text).
     var onPolishHotkeyPressed: (() -> Void)?
@@ -377,6 +382,20 @@ final class GlobalHotkeyMonitor {
             fnIsDown = false
             otherKeyDuringFn = false
             polishFiredThisFnHold = false
+        }
+
+        // --- keyDown: ⌃⌥V → type the last dictation again (swallowed) ---
+        if type == .keyDown, keyCode == kVKeyCode {
+            let flags = event.flags
+            if flags.contains(.maskControl), flags.contains(.maskAlternate),
+               !flags.contains(.maskCommand), !flags.contains(.maskShift) {
+                if event.getIntegerValueField(.keyboardEventAutorepeat) == 0 {
+                    DispatchQueue.main.async { [weak self] in
+                        self?.onRetypeLastPressed?()
+                    }
+                }
+                return nil
+            }
         }
 
         // --- keyDown: fn+space → polish selected text ---

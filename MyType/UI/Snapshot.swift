@@ -40,7 +40,6 @@ enum Snapshot {
         for tab in SettingsTab.allCases {
             shots.append(("settings-\(tab.rawValue)", { nav.settingsTab = tab; nav.page = .settings }))
         }
-        if let extra = Snapshot.menuShot { shots.append(("menu", extra)) }
 
         for (appearance, suffix) in [(NSAppearance.Name.aqua, "light"), (.darkAqua, "dark")] {
             window.appearance = NSAppearance(named: appearance)
@@ -55,11 +54,19 @@ enum Snapshot {
                 }
             }
         }
+        // The menu bar menu, as text.
+        let menu = NSMenu()
+        let controller = StatusMenuController()
+        controller.menuNeedsUpdate(menu)
+        let lines = menu.items.map { item -> String in
+            if item.isSeparatorItem { return "———" }
+            let title = item.attributedTitle?.string ?? item.title
+            let key = item.keyEquivalent.isEmpty ? "" : "   [\(item.keyEquivalentModifierMask.contains(.control) ? "⌃" : "")\(item.keyEquivalentModifierMask.contains(.option) ? "⌥" : "")⌘?\(item.keyEquivalent)]"
+            return (item.isAlternate ? "  (⌥) " : "") + title.replacingOccurrences(of: "\n", with: " / ") + key + (item.state == .on ? "  ✓" : "")
+        }
+        try? lines.joined(separator: "\n").write(to: url.appendingPathComponent("menu.txt"), atomically: true, encoding: .utf8)
         NSApp.terminate(nil)
     }
-
-    /// Set by the menu code to render its menu as a view, if it can.
-    static var menuShot: (() -> Void)?
 
     private static func settle(_ seconds: TimeInterval) {
         RunLoop.current.run(until: Date().addingTimeInterval(seconds))
