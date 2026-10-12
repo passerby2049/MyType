@@ -135,10 +135,16 @@ extension VoiceInputManager {
               !selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else {
             logger.info("Polish: no text selected — silent dismiss")
-            restoreClipboard(savedClipboard, pasteboard: pasteboard,
-                              originalChangeCount: originalChangeCount)
+            if pasteboard.changeCount != originalChangeCount {
+                restoreClipboard(savedClipboard, pasteboard: pasteboard,
+                                  ifStillAt: pasteboard.changeCount)
+            }
             return
         }
+        // The pasteboard now holds the selection we copied. Put the user's
+        // own back at the end only if it still holds that — a copy the user
+        // made meanwhile stays.
+        let copiedChangeCount = pasteboard.changeCount
 
         let anchorAXRect = AXSelectionLocator.selectionScreenRect()
             ?? mouseAXRect(mouseFallback)
@@ -199,17 +205,17 @@ extension VoiceInputManager {
 
         case .cancel:
             restoreClipboard(savedClipboard, pasteboard: pasteboard,
-                              originalChangeCount: pasteboard.changeCount)
+                              ifStillAt: copiedChangeCount)
             logger.info("Polish cancelled")
 
         case .noChanges:
             restoreClipboard(savedClipboard, pasteboard: pasteboard,
-                              originalChangeCount: pasteboard.changeCount)
+                              ifStillAt: copiedChangeCount)
             logger.info("Polish: no changes from LLM — dismissed")
 
         case .error:
             restoreClipboard(savedClipboard, pasteboard: pasteboard,
-                              originalChangeCount: pasteboard.changeCount)
+                              ifStillAt: copiedChangeCount)
             if soundEffectsEnabled {
                 errorSound?.play()
             }
@@ -237,6 +243,7 @@ extension VoiceInputManager {
     ) async {
         pasteboard.clearContents()
         pasteboard.setString(polished, forType: .string)
+        let ourChangeCount = pasteboard.changeCount
 
         if let pid = capturedTargetPID,
            let app = NSRunningApplication(processIdentifier: pid) {
@@ -248,21 +255,25 @@ extension VoiceInputManager {
 
         // Wait for the target app to read the pasteboard before we
         // overwrite it. Most native Cocoa apps read on Cmd+V; Electron
-        // renderers can take ~150ms.
-        try? await Task.sleep(for: .milliseconds(220))
+        // renderers can take ~150ms, longer when busy — nothing is waiting
+        // on this, so give them room.
+        try? await Task.sleep(for: .milliseconds(500))
 
-        pasteboard.clearContents()
-        if let saved = savedClipboard {
-            pasteboard.setString(saved, forType: .string)
-        }
+        restoreClipboard(savedClipboard, pasteboard: pasteboard,
+                          ifStillAt: ourChangeCount)
     }
 
+    /// Put the user's clipboard back, only if the pasteboard is still at
+    /// `changeCount` — what we (or our Cmd+C) left there. Was a test for
+    /// "changed since", which the cancel / no-change / error paths passed
+    /// the current count to, so it never restored: the user's clipboard
+    /// was left holding the selection.
     private func restoreClipboard(
         _ saved: String?,
         pasteboard: NSPasteboard,
-        originalChangeCount: Int
+        ifStillAt changeCount: Int
     ) {
-        if pasteboard.changeCount > originalChangeCount {
+        if pasteboard.changeCount == changeCount {
             pasteboard.clearContents()
             if let saved {
                 pasteboard.setString(saved, forType: .string)

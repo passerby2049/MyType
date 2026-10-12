@@ -135,7 +135,27 @@ final class GlobalHotkeyMonitor {
             pollForAccessibility()
         }
 
+        // Key-up events missed while asleep or switched away would leave a
+        // key "held": the next tap goes unseen, and a stuck fn swallows
+        // every Space. Start clean after each.
+        let center = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didWakeNotification, NSWorkspace.sessionDidBecomeActiveNotification] {
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.clearKeyState()
+                logger.info("Key state cleared after \(name.rawValue, privacy: .public)")
+            }
+        }
+
         isMonitoring = true
+    }
+
+    /// Forget which keys are held.
+    nonisolated private func clearKeyState() {
+        fnIsDown = false
+        otherKeyDuringFn = false
+        polishFiredThisFnHold = false
+        rightControlIsDown = false
+        otherKeyDuringRightControl = false
     }
 
     /// Periodically check if Accessibility was granted. Once it is,
@@ -275,7 +295,9 @@ final class GlobalHotkeyMonitor {
     /// A clean tap (down and up with no other key between) toggles
     /// recording, like fn.
     nonisolated private func handleRightControl(isDown: Bool) {
-        if isDown && !rightControlIsDown {
+        if isDown {
+            // Also when it already counts as held: its release was missed,
+            // and this press starts a fresh tap.
             rightControlIsDown = true
             otherKeyDuringRightControl = false
         } else if !isDown && rightControlIsDown {
@@ -297,8 +319,10 @@ final class GlobalHotkeyMonitor {
         event: CGEvent
     ) -> Unmanaged<CGEvent>? {
 
-        // Re-enable the tap if macOS disabled it due to timeout
+        // Re-enable the tap if macOS disabled it due to timeout. Key events
+        // were missed meanwhile, so what we think is held can't be trusted.
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            clearKeyState()
             if let tap = eventTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
             }
@@ -316,6 +340,9 @@ final class GlobalHotkeyMonitor {
         // --- flagsChanged: detect fn press/release ---
         if type == .flagsChanged {
             guard keyCode == kFnKeyCode else {
+                // Another modifier joined (⌃⇧, fn+⌥): a chord, not a tap.
+                if rightControlIsDown { otherKeyDuringRightControl = true }
+                if fnIsDown { otherKeyDuringFn = true }
                 return Unmanaged.passUnretained(event)
             }
 
@@ -342,6 +369,14 @@ final class GlobalHotkeyMonitor {
             }
 
             return Unmanaged.passUnretained(event)
+        }
+
+        // A key event without the fn flag while we think fn is held: its
+        // release was missed. Without this a stuck fn swallowed every Space.
+        if fnIsDown, type == .keyDown || type == .keyUp, !event.flags.contains(.maskSecondaryFn) {
+            fnIsDown = false
+            otherKeyDuringFn = false
+            polishFiredThisFnHold = false
         }
 
         // --- keyDown: fn+space → polish selected text ---

@@ -51,16 +51,18 @@ enum TextInjector {
             return TextInjectionResult(targetApp: targetName, status: .failed)
         }
 
-        // Re-activate the captured target app so it's the key window
-        // when we synthesize keystrokes at the HID layer.
+        // Re-activate the captured target app so it's the key window when we
+        // synthesize keystrokes at the HID layer — only if it isn't frontmost
+        // already. The overlay is a non-activating panel, so usually it still
+        // is, and the wait below was 120 ms spent on every dictation.
         if let pid = targetPID,
+           NSWorkspace.shared.frontmostApplication?.processIdentifier != pid,
            let app = NSRunningApplication(processIdentifier: pid) {
             app.activate(options: [])
+            // Wait for activation. Electron apps (Antigravity, VS Code, Cursor)
+            // need ~120ms to re-attach key handling to the focused webview.
+            try? await Task.sleep(for: .milliseconds(120))
         }
-
-        // Wait for activation. Electron apps (Antigravity, VS Code, Cursor)
-        // need ~120ms to re-attach key handling to the focused webview.
-        try? await Task.sleep(for: .milliseconds(120))
 
         logger.info("Typing into \(targetName ?? "unknown") (pid=\(targetPID ?? -1)): \(text.count) chars")
         if typeUnicodeString(text) {
@@ -105,20 +107,32 @@ enum TextInjector {
             flagsClear.post(tap: .cghidEventTap)
         }
 
-        // Split the text into chunks by UTF-16 code units (which is what
-        // CGEventKeyboardSetUnicodeString consumes).
-        let utf16 = Array(text.utf16)
-        var index = 0
-        while index < utf16.count {
-            let end = min(index + maxUnicodeChunk, utf16.count)
-            let slice = Array(utf16[index..<end])
-            guard postChunk(slice, source: source) else {
+        for chunk in unicodeChunks(text) {
+            guard postChunk(chunk, source: source) else {
                 return false
             }
-            index = end
         }
 
         return true
+    }
+
+    /// Split into chunks of at most `maxUnicodeChunk` UTF-16 code units
+    /// (what CGEventKeyboardSetUnicodeString consumes), cut only between
+    /// characters: a cut inside a surrogate pair or a composed emoji typed
+    /// two halves that showed up as garbage.
+    static func unicodeChunks(_ text: String) -> [[UniChar]] {
+        var chunks: [[UniChar]] = []
+        var current: [UniChar] = []
+        for character in text {
+            let units = Array(String(character).utf16)
+            if !current.isEmpty, current.count + units.count > maxUnicodeChunk {
+                chunks.append(current)
+                current = []
+            }
+            current.append(contentsOf: units)
+        }
+        if !current.isEmpty { chunks.append(current) }
+        return chunks
     }
 
     /// Post a single keyDown/keyUp pair carrying the given UTF-16 chunk

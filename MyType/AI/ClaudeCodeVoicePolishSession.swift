@@ -30,6 +30,13 @@ actor ClaudeCodeVoicePolishSession {
     private var modelInUse: String?
     private var effortInUse: String?
     private var turnCount = 0
+    /// A turn is waiting for its reply. A turn the caller gave up on (past
+    /// the 10 s timeout) can still be running when the next transcript
+    /// comes; two turns reading one stdout could take each other's reply.
+    private var turnInFlight = false
+    /// Bumped per spawn, so a turn from a session already replaced doesn't
+    /// tear down or touch its successor.
+    private var generation = 0
     /// Respawn after this many turns to keep context size bounded.
     private let maxTurnsBeforeRespawn = 100
 
@@ -44,22 +51,41 @@ actor ClaudeCodeVoicePolishSession {
         model: String,
         effort: String = "low"
     ) async throws -> String {
-        if process?.isRunning != true || systemPromptInUse != systemPrompt || modelInUse != model || effortInUse != effort || turnCount >= maxTurnsBeforeRespawn {
-            tearDown()
-            try spawnProcess(model: model, effort: effort, systemPrompt: systemPrompt)
-            systemPromptInUse = systemPrompt
-            modelInUse = model
-            effortInUse = effort
-            turnCount = 0
-        }
+        let spawned = try prepare(systemPrompt: systemPrompt, model: model, effort: effort)
+        let turnGeneration = generation
+        turnInFlight = true
+        defer { if generation == turnGeneration { turnInFlight = false } }
         do {
             turnCount += 1
-            return try await sendAndCollect(text)
+            logger.info("turn \(self.turnCount, privacy: .public)\(spawned ? " (spawned for it — cold)" : "", privacy: .public)")
+            return try await sendAndCollect(text, generation: turnGeneration)
         } catch {
-            logger.warning("turn failed, tearing down: \(error.localizedDescription, privacy: .public)")
-            tearDown()
+            if generation == turnGeneration {
+                logger.warning("turn failed, tearing down: \(error.localizedDescription, privacy: .public)")
+                tearDown()
+            }
             throw error
         }
+    }
+
+    /// Make sure a session with these rules is running, without sending a
+    /// turn (no tokens). Called when recording starts, so a session that
+    /// died, has new rules (vocabulary, language) or reached its turn limit
+    /// is started while the user speaks, not after — a cold start after
+    /// speaking cost ~6 s against ~2 s warm. Returns whether it spawned.
+    @discardableResult
+    func prepare(systemPrompt: String, model: String, effort: String) throws -> Bool {
+        guard process?.isRunning != true || turnInFlight || systemPromptInUse != systemPrompt || modelInUse != model || effortInUse != effort || turnCount >= maxTurnsBeforeRespawn else {
+            return false
+        }
+        if turnInFlight { logger.warning("a turn is still running — replacing the session") }
+        tearDown()
+        try spawnProcess(model: model, effort: effort, systemPrompt: systemPrompt)
+        systemPromptInUse = systemPrompt
+        modelInUse = model
+        effortInUse = effort
+        turnCount = 0
+        return true
     }
 
     /// The model `cc-opus` / `cc-sonnet` stands for.
@@ -80,6 +106,7 @@ actor ClaudeCodeVoicePolishSession {
         guard let binary = claudeCodeBinaryPath() else {
             throw ClaudeCodeError.binaryNotFound
         }
+        generation += 1
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: binary)
         proc.arguments = [
@@ -128,6 +155,7 @@ actor ClaudeCodeVoicePolishSession {
         modelInUse = nil
         effortInUse = nil
         turnCount = 0
+        turnInFlight = false
         cleanupSessionFiles()
     }
 
@@ -146,7 +174,7 @@ actor ClaudeCodeVoicePolishSession {
     // MARK: - Turn I/O
 
     /// Send one message and collect the reply's text.
-    private func sendAndCollect(_ text: String) async throws -> String {
+    private func sendAndCollect(_ text: String, generation turnGeneration: Int) async throws -> String {
         guard let handle = stdinHandle, var iterator = stdoutIterator else {
             throw ClaudeCodeError.stdoutClosed
         }
@@ -168,7 +196,7 @@ actor ClaudeCodeVoicePolishSession {
             case .text(let t):
                 collected += t
             case .result(let isError, let errorMsg, _, _, _):
-                stdoutIterator = iterator
+                if generation == turnGeneration { stdoutIterator = iterator }
                 if isError {
                     throw ClaudeCodeError.apiError(errorMsg ?? "claude returned is_error")
                 }
@@ -176,7 +204,7 @@ actor ClaudeCodeVoicePolishSession {
             }
         }
 
-        stdoutIterator = nil
+        if generation == turnGeneration { stdoutIterator = nil }
         throw ClaudeCodeError.stdoutClosed
     }
 }

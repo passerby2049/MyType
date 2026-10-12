@@ -6,6 +6,12 @@ import AudioCommon
 import Foundation
 import MLX
 import Qwen3ASR
+import os
+
+private let logger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "MyType",
+    category: "VoiceInputManager"
+)
 
 extension VoiceInputManager {
 
@@ -48,14 +54,22 @@ extension VoiceInputManager {
     ) async throws -> String {
         let model = try await qwen3Model(for: engine)
         let options = Qwen3DecodingOptions(language: language.qwen3Hint, context: Self.recognitionContext())
-        let text = try await Task.detached(priority: .userInitiated) {
+        let (text, audioSeconds, loadSeconds) = try await Task.detached(priority: .userInitiated) {
             // MLX keeps the decode's scratch buffers for reuse, up to Qwen3ASR's 4 GB cap: 1–2.5 GB on top of the
             // ~1.8 GB of weights for as long as the app runs. Emptying it after each run costs nothing measurable
             // (40 recordings: median 0.548 → 0.550 s, same text; eval/asr-bench mem-bench).
             defer { Memory.clearCache() }
+            let loadStart = Date()
             let samples = try AudioFileLoader.load(url: url, targetSampleRate: 16000)
-            return try model.transcribeCheckingCancellation(audio: samples, sampleRate: 16000, options: options)
+            let loadSeconds = Date().timeIntervalSince(loadStart)
+            let text = try model.transcribeCheckingCancellation(audio: samples, sampleRate: 16000, options: options)
+            return (text, Double(samples.count) / 16000, loadSeconds)
         }.value
+        // Capture gap: how much of the time the user held the key isn't in
+        // the file — a slow microphone start eats the first words.
+        let gapMs = Int((recordingDuration - audioSeconds) * 1000)
+        let line = "Audio \(String(format: "%.2f", audioSeconds)) s of \(String(format: "%.2f", recordingDuration)) s held (gap \(gapMs) ms), decode+resample \(Int(loadSeconds * 1000)) ms"
+        if gapMs >= 350 { logger.warning("\(line, privacy: .public)") } else { logger.info("\(line, privacy: .public)") }
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 

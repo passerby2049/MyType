@@ -155,10 +155,11 @@ final class VoiceInputManager {
             startRecording()
         case .recording:
             finishRecording()
-        case .transcribing, .polishing:
-            cancelProcessing()
-        case .inserting:
-            logger.info("Cancel ignored — text insertion is already in progress")
+        case .transcribing, .polishing, .inserting:
+            // A second tap while the last one is still being worked on is a
+            // bounce or an early start on the next — it used to cancel and
+            // throw away what was just said. Esc and the overlay's ✕ cancel.
+            logger.info("Hotkey ignored — still finishing (\(String(describing: self.state)))")
         }
     }
 
@@ -202,6 +203,16 @@ final class VoiceInputManager {
         hideOverlay()
     }
 
+    /// One line per dictation: where the time between letting go of the key
+    /// and the text appearing went. Whether a slow polish was a cold session
+    /// is the "turn N (spawned for it — cold)" line before it.
+    private func logTiming(stoppedAt: Date, stt: TimeInterval, polish: TimeInterval?) {
+        let total = Date().timeIntervalSince(stoppedAt)
+        let typing = total - stt - (polish ?? 0)
+        let polishText = polish.map { String(format: "%.2f", $0) } ?? "-"
+        logger.notice("Timing: stop→typed \(String(format: "%.2f", total), privacy: .public) s = stt \(String(format: "%.2f", stt), privacy: .public) + polish \(polishText, privacy: .public) + rest \(String(format: "%.2f", typing), privacy: .public)")
+    }
+
     // MARK: - Processing Pipeline
 
     func processRecording() async {
@@ -212,6 +223,7 @@ final class VoiceInputManager {
         }
 
         let audioURL = VoiceInputStore.newAudioFileURL(id: id)
+        let stoppedAt = Date()
 
         guard FileManager.default.fileExists(atPath: audioURL.path) else {
             logger.info("Recording file not found — dismissing silently")
@@ -240,7 +252,7 @@ final class VoiceInputManager {
             try Task.checkCancellation()
 
             // Step 3: Optional LLM polish — with timeout fallback.
-            // If LLM takes longer than 60s, inject the raw STT text first
+            // If LLM takes longer than 10s, inject the raw STT text first
             // so the user isn't blocked. LLM result updates history later.
             let llmEnabled = LLMRewriter.isEnabled
             let model = llmEnabled ? LLMRewriter.resolvedModel : nil
@@ -256,8 +268,10 @@ final class VoiceInputManager {
                 logger.info("LLM polish using model: \(model, privacy: .public)")
                 let llmStart = Date()
 
-                // Race: LLM polish vs 60s timeout. If the LLM is
-                // slow (thinking, network), inject raw text first.
+                // Race: LLM polish vs a 10 s timeout. If the LLM is slow
+                // (thinking, network, a stuck session), inject raw text first.
+                // Was 60 s; since the 10/09 engine change 175 polishes took
+                // p50 2.0 s, p99 5.9 s, max 6.6 s (a cold Opus session).
                 let llmTask = Task {
                     try await LLMRewriter.rewrite(
                         rawText: optimizedText,
@@ -273,7 +287,7 @@ final class VoiceInputManager {
                     polishResult = try await withThrowingTaskGroup(of: String?.self) { group in
                         group.addTask { try await llmTask.value }
                         group.addTask {
-                            try await Task.sleep(for: .seconds(60))
+                            try await Task.sleep(for: .seconds(10))
                             return nil
                         }
                         let first = try await group.next() ?? nil
@@ -300,6 +314,7 @@ final class VoiceInputManager {
                         targetName: capturedTargetName
                     )
                     deliveryStatus = injection.status
+                    logTiming(stoppedAt: stoppedAt, stt: sttTime, polish: llmTime)
                     let vocabularyHitCount = VocabularyStore.shared.recordHits(in: polished)
                     let record = VoiceInputRecord(
                         id: id, text: polished, rawTranscript: rawText,
@@ -317,8 +332,8 @@ final class VoiceInputManager {
                     // Timeout (or LLM errored): inject raw text now. Keep
                     // awaiting the LLM in the background — when/if it
                     // returns, update history so the polished version
-                    // isn't lost just because we missed the 60s window.
-                    logger.warning("LLM polish didn't return within 60s — injecting raw text first")
+                    // isn't lost just because we missed the 10s window.
+                    logger.warning("LLM polish didn't return within 10s — injecting raw text first")
 
                     state = .inserting
                     updateOverlay()
@@ -328,6 +343,7 @@ final class VoiceInputManager {
                         targetName: capturedTargetName
                     )
                     deliveryStatus = injection.status
+                    logTiming(stoppedAt: stoppedAt, stt: sttTime, polish: llmTime)
                     let vocabularyHitCount = VocabularyStore.shared.recordHits(in: optimizedText)
                     let record = VoiceInputRecord(
                         id: id, text: optimizedText, rawTranscript: rawText,
@@ -380,6 +396,7 @@ final class VoiceInputManager {
                     targetName: capturedTargetName
                 )
                 deliveryStatus = injection.status
+                logTiming(stoppedAt: stoppedAt, stt: sttTime, polish: nil)
                 let vocabularyHitCount = VocabularyStore.shared.recordHits(in: optimizedText)
                 let record = VoiceInputRecord(
                     id: id, text: optimizedText, rawTranscript: rawText,

@@ -42,26 +42,50 @@ extension VoiceInputManager {
     }
 
     func prewarmLLMSession() async {
-        // Read MainActor-isolated settings on the main actor.
-        let (enabled, model, systemPrompt) = await MainActor.run {
-            (
-                LLMRewriter.isEnabled,
-                LLMRewriter.resolvedModel,
-                LLMRewriter.buildSystemPromptForPrewarm()
-            )
-        }
-        guard enabled, AIProvider.provider(for: model) == .claudeCode else { return }
+        guard let (model, systemPrompt, effort) = await claudeSessionSettings() else { return }
 
         // Spawn the session and send one turn so the first real polish call is fast.
         do {
             _ = try await ClaudeCodeVoicePolishSession.shared.polish(
                 text: LLMRewriter.sessionMessage(text: "test", frontApp: nil),
                 systemPrompt: systemPrompt,
-                model: model
+                model: model,
+                effort: effort
             )
             logger.info("Pre-warmed Claude Code session (model=\(model))")
         } catch {
             logger.warning("Claude session pre-warm failed: \(error.localizedDescription)")
         }
+    }
+
+    /// On each recording start: have the polish session ready by the time
+    /// the user stops speaking (spawn only, no turn — see
+    /// `ClaudeCodeVoicePolishSession.prepare`).
+    func preparePolishSession() async {
+        guard let (model, systemPrompt, effort) = await claudeSessionSettings() else { return }
+        do {
+            if try await ClaudeCodeVoicePolishSession.shared.prepare(systemPrompt: systemPrompt, model: model, effort: effort) {
+                logger.info("Polish session started while recording (model=\(model))")
+            }
+        } catch {
+            logger.warning("Polish session start failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Model, rules and effort of the Claude Code polish session, as the
+    /// next polish will ask for them; nil when polish is off or not on
+    /// Claude Code.
+    private func claudeSessionSettings() async -> (String, String, String)? {
+        // Read MainActor-isolated settings on the main actor.
+        let (enabled, model, systemPrompt, effort) = await MainActor.run {
+            (
+                LLMRewriter.isEnabled,
+                LLMRewriter.resolvedModel,
+                LLMRewriter.buildSystemPromptForPrewarm(),
+                LLMRewriter.resolvedEffort
+            )
+        }
+        guard enabled, AIProvider.provider(for: model) == .claudeCode else { return nil }
+        return (model, systemPrompt, effort)
     }
 }

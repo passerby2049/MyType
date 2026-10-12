@@ -69,6 +69,9 @@ extension VoiceInputManager {
             // Show overlay
             showOverlay()
 
+            // Have the polish session up before the user stops speaking.
+            Task.detached(priority: .utility) { await self.preparePolishSession() }
+
             // Start level monitoring
             startLevelMonitor()
 
