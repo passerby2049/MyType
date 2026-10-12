@@ -308,6 +308,7 @@ final class VoiceInputManager {
 
                     state = .inserting
                     updateOverlay()
+                    let insertStart = Date()
                     let injection = await TextInjector.inject(
                         polished,
                         targetPID: capturedTargetPID,
@@ -316,7 +317,7 @@ final class VoiceInputManager {
                     deliveryStatus = injection.status
                     logTiming(stoppedAt: stoppedAt, stt: sttTime, polish: llmTime)
                     let vocabularyHitCount = VocabularyStore.shared.recordHits(in: polished)
-                    let record = VoiceInputRecord(
+                    var record = VoiceInputRecord(
                         id: id, text: polished, rawTranscript: rawText,
                         audioFileName: VoiceInputStore.newAudioFileName(id: id),
                         language: VoiceInputLanguage.current.resolved(for: rawText).localeIdentifier, duration: recordingDuration,
@@ -327,7 +328,9 @@ final class VoiceInputManager {
                         transcriptionTime: sttTime, llmPolishTime: llmTime,
                         llmModel: model
                     )
-                    saveHistoryRecordIfNeeded(record)
+                    record.insertTime = injection.finishedAt.timeIntervalSince(insertStart)
+                    record.polishCold = LLMRewriter.lastPolishCold
+                saveHistoryRecordIfNeeded(record)
                 } else {
                     // Timeout (or LLM errored): inject raw text now. Keep
                     // awaiting the LLM in the background — when/if it
@@ -337,6 +340,7 @@ final class VoiceInputManager {
 
                     state = .inserting
                     updateOverlay()
+                    let insertStart = Date()
                     let injection = await TextInjector.inject(
                         optimizedText,
                         targetPID: capturedTargetPID,
@@ -345,7 +349,7 @@ final class VoiceInputManager {
                     deliveryStatus = injection.status
                     logTiming(stoppedAt: stoppedAt, stt: sttTime, polish: llmTime)
                     let vocabularyHitCount = VocabularyStore.shared.recordHits(in: optimizedText)
-                    let record = VoiceInputRecord(
+                    var record = VoiceInputRecord(
                         id: id, text: optimizedText, rawTranscript: rawText,
                         audioFileName: VoiceInputStore.newAudioFileName(id: id),
                         language: VoiceInputLanguage.current.resolved(for: rawText).localeIdentifier, duration: recordingDuration,
@@ -356,7 +360,9 @@ final class VoiceInputManager {
                         transcriptionTime: sttTime, llmPolishTime: llmTime,
                         llmModel: model
                     )
-                    saveHistoryRecordIfNeeded(record)
+                    record.insertTime = injection.finishedAt.timeIntervalSince(insertStart)
+                    record.polishCold = LLMRewriter.lastPolishCold
+                saveHistoryRecordIfNeeded(record)
 
                     if VoiceInputStore.isHistoryEnabled {
                         Task { [logger] in
@@ -390,6 +396,7 @@ final class VoiceInputManager {
 
                 state = .inserting
                 updateOverlay()
+                let insertStart = Date()
                 let injection = await TextInjector.inject(
                     optimizedText,
                     targetPID: capturedTargetPID,
@@ -398,7 +405,7 @@ final class VoiceInputManager {
                 deliveryStatus = injection.status
                 logTiming(stoppedAt: stoppedAt, stt: sttTime, polish: nil)
                 let vocabularyHitCount = VocabularyStore.shared.recordHits(in: optimizedText)
-                let record = VoiceInputRecord(
+                var record = VoiceInputRecord(
                     id: id, text: optimizedText, rawTranscript: rawText,
                     audioFileName: VoiceInputStore.newAudioFileName(id: id),
                     language: VoiceInputLanguage.current.resolved(for: rawText).localeIdentifier, duration: recordingDuration,
@@ -409,6 +416,7 @@ final class VoiceInputManager {
                     transcriptionTime: sttTime, llmPolishTime: nil,
                     llmModel: nil
                 )
+                record.insertTime = injection.finishedAt.timeIntervalSince(insertStart)
                 saveHistoryRecordIfNeeded(record)
             }
 

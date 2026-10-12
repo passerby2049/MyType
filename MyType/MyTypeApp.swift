@@ -23,13 +23,15 @@ struct MyTypeMain {
     }
 }
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
-    private var settingsWindow: NSWindow?
-    private var historyWindow: NSWindow?
-    private var statsWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if let dir = Snapshot.directory {
+            Snapshot.run(into: dir)
+            return
+        }
         setupMainMenu()
         setupStatusItem()
         VoiceInputManager.shared.activate()
@@ -127,82 +129,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Windows
 
-    @objc private func openSettings() {
-        if let w = settingsWindow {
-            w.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
-        }
-
-        let view = VoiceInputSettingsView()
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 700, height: 480),
-            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-        window.toolbarStyle = .unified
-        window.isReleasedWhenClosed = false
-        let toolbar = NSToolbar(identifier: "settings")
-        toolbar.displayMode = .iconOnly
-        window.toolbar = toolbar
-        window.contentView = NSHostingView(rootView: view)
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-        settingsWindow = window
-    }
-
-    @objc private func openHistory() {
-        logger.debug("openHistory called")
-        if let w = historyWindow {
-            w.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
-        }
-
-        let view = VoiceInputHistoryView()
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 750, height: 500),
-            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-        window.toolbarStyle = .unified
-        window.isReleasedWhenClosed = false
-        let toolbar = NSToolbar(identifier: "history")
-        toolbar.displayMode = .iconOnly
-        window.toolbar = toolbar
-        window.contentView = NSHostingView(rootView: view)
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-        historyWindow = window
-    }
-
-    @objc private func openStats() {
-        if let w = statsWindow {
-            w.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
-        }
-
-        let view = VoiceInputStatsView()
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 480),
-            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "Statistics"
-        window.toolbarStyle = .unified
-        window.isReleasedWhenClosed = false
-        window.contentView = NSHostingView(rootView: view)
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-        statsWindow = window
-    }
+    @objc private func openSettings() { MainWindowController.shared.show(.settings) }
+    @objc private func openHistory() { MainWindowController.shared.show(.history) }
+    @objc private func openStats() { MainWindowController.shared.show(.stats) }
 }
 
 extension Notification.Name {

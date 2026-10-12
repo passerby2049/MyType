@@ -17,6 +17,8 @@ private let logger = Logger(
 struct TextInjectionResult {
     let targetApp: String?
     let status: VoiceInputInsertStatus
+    /// When typing finished, for the record's typing time.
+    var finishedAt = Date()
 }
 
 enum TextInjector {

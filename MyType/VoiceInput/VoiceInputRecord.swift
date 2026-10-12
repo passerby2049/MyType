@@ -49,6 +49,8 @@ struct VoiceInputRecord: Codable, Identifiable {
     var sentLookup: VoiceInputSentLookup? = nil  // Whether what was sent was looked up (nil = not yet)
     var sentText: String? = nil           // This dictation as it was sent (Claude Code, Otto), edits included
     var sentAt: Date? = nil               // When that input was submitted
+    var insertTime: TimeInterval? = nil   // Seconds spent typing it into the app (activation included)
+    var polishCold: Bool? = nil           // The polish turn had to start its session (nil = not Claude Code / old record)
 
     init(
         id: UUID = UUID(),

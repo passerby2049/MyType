@@ -75,8 +75,10 @@ extension VoiceInputManager {
 
     /// The vocabulary as Qwen3-ASR's context: a short list works best (a
     /// long one is slower and no more accurate).
+    static let recognitionContextLimit = 60
+
     static func recognitionContext() -> String? {
-        let terms = VocabularyStore.shared.enabledTerms.map(\.term).prefix(60)
+        let terms = VocabularyStore.shared.enabledTerms.map(\.term).prefix(recognitionContextLimit)
         return terms.isEmpty ? nil : "Vocabulary: " + terms.joined(separator: ", ")
     }
 

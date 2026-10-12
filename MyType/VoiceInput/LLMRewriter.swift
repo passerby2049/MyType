@@ -102,6 +102,7 @@ enum LLMRewriter {
         vocabularyTerms: [String] = [],
         frontApp: String? = nil
     ) async throws -> String {
+        await MainActor.run { lastPolishCold = nil }
         if let skipReason = shouldSkipReason(for: rawText, mode: polishMode) {
             logger.info("🤖 LLM skipped (\(skipReason, privacy: .public)) — input \(rawText.count) chars")
             return rawText
@@ -145,6 +146,10 @@ enum LLMRewriter {
         return applyGuardrails(rawOutput: collected, rawText: rawText)
     }
 
+    /// Whether the last `rewrite` went through a Claude Code session that
+    /// had to be started for it; nil when it didn't use one.
+    @MainActor static var lastPolishCold: Bool?
+
     // MARK: - Claude Code Persistent Session
 
     /// Route one voice-input polish through the warm Claude Code session.
@@ -171,6 +176,9 @@ enum LLMRewriter {
             model: model,
             effort: resolvedEffort
         )
+
+        let cold = await ClaudeCodeVoicePolishSession.shared.lastTurnCold
+        await MainActor.run { lastPolishCold = cold }
 
         let elapsed = Date.now.timeIntervalSince(started)
         logger.info("🤖 LLM session DONE — \(raw.count) chars, \(String(format: "%.2f", elapsed))s")

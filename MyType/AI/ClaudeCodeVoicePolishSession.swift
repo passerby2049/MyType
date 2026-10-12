@@ -37,6 +37,9 @@ actor ClaudeCodeVoicePolishSession {
     /// Bumped per spawn, so a turn from a session already replaced doesn't
     /// tear down or touch its successor.
     private var generation = 0
+    /// Whether the last turn had to start its session (for the history's
+    /// "冷 / 热" and the statistics).
+    private(set) var lastTurnCold = false
     /// Respawn after this many turns to keep context size bounded.
     private let maxTurnsBeforeRespawn = 100
 
@@ -53,6 +56,7 @@ actor ClaudeCodeVoicePolishSession {
     ) async throws -> String {
         let spawned = try prepare(systemPrompt: systemPrompt, model: model, effort: effort)
         let turnGeneration = generation
+        lastTurnCold = spawned
         turnInFlight = true
         defer { if generation == turnGeneration { turnInFlight = false } }
         do {

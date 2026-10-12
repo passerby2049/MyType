@@ -73,7 +73,8 @@ struct LanguageKey: Hashable {
     var displayName: String {
         switch raw {
         case "zh": return "中文"
-        case "en": return "English"
+        case "en": return "英文"
+        case "ja": return "日文"
         case "":   return "Unknown"
         default:
             let locale = Locale(identifier: raw)
@@ -89,13 +90,29 @@ struct LanguageKey: Hashable {
         }
     }
 
-    /// Average typing rate used to estimate "time saved." Pinyin input on
-    /// Chinese is roughly 60 cpm; English typing averages ~40 WPM ≈ 200 cpm.
+    /// How fast the user types this language, chars per minute (settings ·
+    /// 通用), for "time saved". Pinyin / kana input around 60, English ~200.
     var typingCharsPerMinute: Double {
-        switch raw {
-        case "zh": return 60
-        case "en": return 200
-        default:   return 200
+        TypingSpeed.charsPerMinute(for: raw)
+    }
+}
+
+/// The user's typing speed per language (chars per minute), for estimating
+/// the time dictation saved. Japanese was counted at the English rate before.
+enum TypingSpeed {
+    static let languages = ["zh", "en", "ja"]
+
+    static func key(_ language: String) -> String { "typingSpeed.\(language)" }
+
+    static func defaultValue(_ language: String) -> Double {
+        switch language {
+        case "zh", "ja": 60
+        default: 200
         }
+    }
+
+    static func charsPerMinute(for language: String) -> Double {
+        let stored = UserDefaults.standard.double(forKey: key(language))
+        return stored > 0 ? stored : defaultValue(language)
     }
 }
