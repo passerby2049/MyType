@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-macOS menu bar voice input app. Press fn (Globe) to record, release to transcribe + LLM polish + paste into the active app. Built with SwiftUI + AppKit, deployment target **macOS 26.0**.
+macOS menu bar voice input app. Press fn (Globe) to record, release to transcribe + LLM polish + paste into the active app. Built with SwiftUI + AppKit, deployment target **macOS 27.0**.
 
 Core features: local on-device STT (Qwen3-ASR via speech-swift, Apple Speech), LLM-powered voice polish (Claude Code persistent session, Anthropic API, Google AI, OpenRouter), custom vocabulary, history with audio playback.
 

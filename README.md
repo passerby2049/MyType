@@ -16,7 +16,7 @@ Local STT → LLM polish → auto paste. Your data stays on your Mac.
 
 ## Requirements
 
-- macOS 26.0+
+- macOS 27.0+
 - Apple Silicon recommended (for on-device STT acceleration)
 - [Claude Code CLI](https://claude.ai/claude-code) (optional, for AI polish via Claude)
 
