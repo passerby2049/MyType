@@ -100,7 +100,8 @@ enum LLMRewriter {
         language: VoiceInputLanguage,
         model: String,
         vocabularyTerms: [String] = [],
-        frontApp: String? = nil
+        frontApp: String? = nil,
+        conversation: String? = nil
     ) async throws -> String {
         await MainActor.run { lastPolishCold = nil }
         if let skipReason = shouldSkipReason(for: rawText, mode: polishMode) {
@@ -117,7 +118,8 @@ enum LLMRewriter {
                 language: language,
                 model: model,
                 vocabularyTerms: vocabularyTerms,
-                frontApp: frontApp
+                frontApp: frontApp,
+                conversation: conversation
             )
         }
 
@@ -125,7 +127,8 @@ enum LLMRewriter {
             text: rawText,
             language: language,
             vocabularyTerms: vocabularyTerms,
-            frontApp: frontApp
+            frontApp: frontApp,
+            conversation: conversation
         )
 
         logger.info("🤖 LLM stream START — model=\(model, privacy: .public) input=\(rawText.count) chars")
@@ -160,7 +163,8 @@ enum LLMRewriter {
         language: VoiceInputLanguage,
         model: String,
         vocabularyTerms: [String],
-        frontApp: String?
+        frontApp: String?,
+        conversation: String?
     ) async throws -> String {
         let systemPrompt = buildSystemPrompt(
             language: language,
@@ -171,7 +175,7 @@ enum LLMRewriter {
 
         let started = Date.now
         let raw = try await ClaudeCodeVoicePolishSession.shared.polish(
-            text: sessionMessage(text: rawText, frontApp: frontApp),
+            text: sessionMessage(text: rawText, frontApp: frontApp, conversation: conversation),
             systemPrompt: systemPrompt,
             model: model,
             effort: resolvedEffort

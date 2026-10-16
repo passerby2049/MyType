@@ -1,7 +1,8 @@
 // align-check — runs MyType's SentTextAligner over the saved records (history.json), Claude Code's input history and Otto's chat,
 // one line per record: id, result (sent as pasted / edited / not matched / no source), what was sent. Same output as
-// `python3 sent_align.py --ids`, so the two can be diffed.
-// Build: swiftc -O -o align-check main.swift ../../MyType/VoiceInput/SentTextAligner.swift
+// `python3 sent_align.py --ids`, so the two can be diffed (except dictations into the Claude desktop app, which only
+// the Swift side looks up, in the session transcripts).
+// Build: swiftc -O -o align-check main.swift ../../MyType/VoiceInput/SentTextAligner.swift ../../MyType/VoiceInput/ClaudeSessionLog.swift
 import Foundation
 
 let historyFile = NSHomeDirectory() + "/Library/Application Support/MyType/VoiceInput/history.json"
@@ -12,10 +13,10 @@ let dictations = records.compactMap { r -> SentTextAligner.Dictation? in
           let at = (r["createdAt"] as? String).flatMap(iso.date(from:)) else { return nil }
     return SentTextAligner.Dictation(id: id, text: text, at: at, app: r["targetApp"] as? String)
 }
-let results = SentTextAligner.lookUp(dictations, inputs: SentTextAligner.inputs(from:))
+let results = SentTextAligner.lookUp(dictations, inputs: SentTextAligner.inputs(from:since:))
 for d in dictations {
     switch results[d.id] {
-    case .found(let sent, _):
+    case .found(let sent, _, _):
         let kind = sent == d.text.trimmingCharacters(in: .whitespacesAndNewlines) ? "sent as pasted" : "edited"
         print("\(d.id.uuidString)\t\(kind)\t\(sent.replacingOccurrences(of: "\n", with: "\\n"))")
     case .notFound: print("\(d.id.uuidString)\tnot matched\t")

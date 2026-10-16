@@ -1,11 +1,13 @@
 """Polish the way MyType does — one warm `claude -p` session (stream-json), the rules as its appended system prompt,
-one transcript per turn with the app it goes into — over transcripts, timing each turn.
-python3 polish_bench.py <model> <effort> <system.txt> <transcripts.jsonl> <gold.jsonl> <out.jsonl> [app]
+one transcript per turn with the app it goes into (and the conversation on screen, from context.jsonl: {"id",
+"context"}, as LLMRewriter.sessionMessage puts it) — over transcripts, timing each turn.
+python3 polish_bench.py <model> <effort> <system.txt> <transcripts.jsonl> <gold.jsonl> <out.jsonl> [app] [context.jsonl]
 Only the ids in gold are sent. Same flags as ClaudeCodeVoicePolishSession.spawnProcess."""
 import json, os, subprocess, sys, tempfile, time
 
 model, effort, system_path, inp, gold_path, out_path = sys.argv[1:7]
 app = sys.argv[7] if len(sys.argv) > 7 else "Zed"
+contexts = {o["id"]: o["context"] for o in map(json.loads, open(sys.argv[8]))} if len(sys.argv) > 8 else {}
 ids = [json.loads(l)["id"] for l in open(gold_path)]
 texts = {o["id"]: o["text"] for o in map(json.loads, open(inp))}
 env = {k: os.environ[k] for k in ("HOME", "USER", "LOGNAME", "LANG", "TMPDIR", "SHELL") if k in os.environ}
@@ -35,7 +37,8 @@ def turn(text):
 t0 = time.time(); turn(f"<app>{app}</app>\n<raw_transcript>\ntest\n</raw_transcript>"); seed_s = time.time() - t0
 with open(out_path, "w") as f:
     for i in ids:
-        t = time.time(); text, ev = turn(f"<app>{app}</app>\n<raw_transcript>\n{texts[i]}\n</raw_transcript>"); s = time.time() - t
+        context = f"<context>\n{contexts[i]}\n</context>\n" if contexts.get(i) else ""
+        t = time.time(); text, ev = turn(f"<app>{app}</app>\n{context}<raw_transcript>\n{texts[i]}\n</raw_transcript>"); s = time.time() - t
         f.write(json.dumps({"id": i, "text": text, "seconds": s, "api_ms": ev.get("duration_api_ms")}, ensure_ascii=False) + "\n")
 proc.stdin.close(); proc.wait(timeout=30)
 print(f"{model} {effort}: first turn {seed_s:.1f}s")

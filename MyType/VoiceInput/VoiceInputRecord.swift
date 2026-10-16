@@ -51,6 +51,8 @@ struct VoiceInputRecord: Codable, Identifiable {
     var sentAt: Date? = nil               // When that input was submitted
     var insertTime: TimeInterval? = nil   // Seconds spent typing it into the app (activation included)
     var polishCold: Bool? = nil           // The polish turn had to start its session (nil = not Claude Code / old record)
+    var contextSession: String? = nil     // Claude Code session whose conversation the polish got (nil = none)
+    var sentSession: String? = nil        // Claude Code session it was sent into, when that's known (VoiceLog)
 
     init(
         id: UUID = UUID(),

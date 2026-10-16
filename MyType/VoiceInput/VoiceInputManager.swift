@@ -273,6 +273,8 @@ final class VoiceInputManager {
             return
         }
 
+        let conversationTask = readConversation()
+
         do {
             // Step 1: Transcribe using the configured engine
             deliveryStatus = nil
@@ -308,6 +310,7 @@ final class VoiceInputManager {
                 state = .polishing
                 updateOverlay()
                 logger.info("LLM polish using model: \(model, privacy: .public)")
+                let conversation = await conversationIfReady(conversationTask)
                 let llmStart = Date()
 
                 // Race: LLM polish vs a 10 s timeout. If the LLM is slow
@@ -320,7 +323,8 @@ final class VoiceInputManager {
                         language: VoiceInputLanguage.current,
                         model: model,
                         vocabularyTerms: vocabTerms,
-                        frontApp: capturedTargetName
+                        frontApp: capturedTargetName,
+                        conversation: conversation?.text
                     )
                 }
 
@@ -373,6 +377,7 @@ final class VoiceInputManager {
                     )
                     record.insertTime = injection.finishedAt.timeIntervalSince(insertStart)
                     record.polishCold = LLMRewriter.lastPolishCold
+                    record.contextSession = conversation?.session
                 saveHistoryRecordIfNeeded(record)
                 } else {
                     // Timeout (or LLM errored): inject raw text now. Keep
@@ -407,6 +412,7 @@ final class VoiceInputManager {
                     )
                     record.insertTime = injection.finishedAt.timeIntervalSince(insertStart)
                     record.polishCold = LLMRewriter.lastPolishCold
+                    record.contextSession = conversation?.session
                 saveHistoryRecordIfNeeded(record)
 
                     if VoiceInputStore.isHistoryEnabled {

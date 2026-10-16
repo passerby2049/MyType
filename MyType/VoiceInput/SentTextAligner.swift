@@ -2,9 +2,10 @@
 // Finds what a dictation became once it was sent: the part of a later
 // input that is this dictation, as the user sent it — edits included.
 // Inputs come from Claude Code's input history (~/.claude/history.jsonl,
-// kept for good) for coding apps, and from the Otto Mac app's copy of its
-// chat for Otto. Matching mirrors eval/sent_align.py; eval/align-check
-// runs both over the same records.
+// kept for good) for coding apps, from the session transcripts for the
+// Claude desktop app (ClaudeSessionLog.desktopPrompts), and from the Otto
+// Mac app's copy of its chat for Otto. Matching mirrors eval/sent_align.py;
+// eval/align-check runs both over the same records.
 
 import Foundation
 
@@ -14,6 +15,7 @@ enum SentTextAligner {
 
     enum Source: Sendable {
         case claude
+        case claudeDesktop
         case otto
     }
 
@@ -21,9 +23,13 @@ enum SentTextAligner {
     static func source(for app: String?) -> Source? {
         guard let app else { return nil }
         if codingApps.contains(app) { return .claude }
+        if app == "Claude" { return .claudeDesktop }
         if app == "Otto" { return .otto }
         return nil
     }
+
+    /// Claude Code deletes session transcripts after 30 days.
+    static let transcriptsKept: TimeInterval = 30 * 24 * 60 * 60
 
     /// How long after a dictation its input may be submitted.
     static let sendWindow: TimeInterval = 15 * 60
@@ -36,7 +42,8 @@ enum SentTextAligner {
     }
 
     enum Lookup: Sendable {
-        case found(text: String, at: Date)
+        /// `session`: the Claude Code session it went into, when the source says.
+        case found(text: String, at: Date, session: String?)
         case notFound
         case noSource
     }
@@ -44,19 +51,35 @@ enum SentTextAligner {
     struct Input: Sendable {
         let at: Date
         let text: String
+        var session: String? = nil
     }
 
-    /// Each source's inputs are read only when a dictation needs them.
-    static func lookUp(_ dictations: [Dictation], inputs: (Source) -> [Input]) -> [UUID: Lookup] {
+    /// Each source's inputs are read only when a dictation needs them,
+    /// from the earliest such dictation on.
+    static func lookUp(
+        _ dictations: [Dictation],
+        now: Date = .now,
+        inputs: (Source, _ since: Date) -> [Input]
+    ) -> [UUID: Lookup] {
+        let sources = dictations.map { dictation -> Source? in
+            let source = source(for: dictation.app)
+            if source == .claudeDesktop, dictation.at < now.addingTimeInterval(-transcriptsKept) { return nil }
+            return source
+        }
+        var earliest: [Source: Date] = [:]
+        for (dictation, source) in zip(dictations, sources) {
+            guard let source else { continue }
+            earliest[source] = min(earliest[source] ?? dictation.at, dictation.at)
+        }
         var read: [Source: [Input]] = [:]
         var results: [UUID: Lookup] = [:]
-        for dictation in dictations {
-            guard let source = source(for: dictation.app) else {
+        for (dictation, source) in zip(dictations, sources) {
+            guard let source, let since = earliest[source] else {
                 results[dictation.id] = .noSource
                 continue
             }
             if read[source] == nil {
-                read[source] = inputs(source)
+                read[source] = inputs(source, since.addingTimeInterval(-5))
             }
             let text = dictation.text.trimmingCharacters(in: .whitespacesAndNewlines)
             results[dictation.id] = firstSent(text, at: dictation.at, in: read[source] ?? []) ?? .notFound
@@ -70,7 +93,7 @@ enum SentTextAligner {
         for input in inputs where input.at >= from {
             if input.at > until { break }
             if let part = sentPart(of: text, in: input.text) {
-                return .found(text: part, at: input.at)
+                return .found(text: part, at: input.at, session: input.session)
             }
         }
         return nil
@@ -95,14 +118,16 @@ enum SentTextAligner {
                 else { continue }
                 text.replaceSubrange(start.lowerBound..<end.upperBound, with: pasted)
             }
-            inputs.append(Input(at: Date(timeIntervalSince1970: ms / 1000), text: text))
+            inputs.append(Input(at: Date(timeIntervalSince1970: ms / 1000), text: text, session: o["sessionId"] as? String))
         }
         return inputs.sorted { ($0.at, $0.text) < ($1.at, $1.text) }
     }
 
-    static func inputs(from source: Source) -> [Input] {
+    static func inputs(from source: Source, since: Date) -> [Input] {
         switch source {
         case .claude: claudeInputs()
+        case .claudeDesktop:
+            ClaudeSessionLog.desktopPrompts(since: since).map { Input(at: $0.at, text: $0.text, session: $0.session) }
         case .otto: ottoInputs()
         }
     }

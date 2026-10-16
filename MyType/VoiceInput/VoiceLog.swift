@@ -1,7 +1,9 @@
 // Abstract:
 // The voice-input log, for Otto to learn from. Once a dictation has had
 // time to be sent, looks up what was actually sent (SentTextAligner) and
-// keeps it on the record; then writes each day's dictations to the Otto
+// keeps it on the record — with the Claude Code session it went into,
+// which says whether the polish was given the right conversation
+// (contextSession); then writes each day's dictations to the Otto
 // folder as _数据/语音输入/YYYY-MM-DD.md — recognized, polished, sent.
 // Runs at launch and hourly; the files are rebuilt from the records.
 
@@ -57,17 +59,18 @@ final class VoiceLog {
         guard !dictations.isEmpty else { return }
 
         let results = await Task.detached(priority: .utility) {
-            SentTextAligner.lookUp(dictations, inputs: SentTextAligner.inputs(from:))
+            SentTextAligner.lookUp(dictations, inputs: SentTextAligner.inputs(from:since:))
         }.value
 
         var changes: [UUID: (inout VoiceInputRecord) -> Void] = [:]
         for (id, lookup) in results {
             switch lookup {
-            case .found(let text, let at):
+            case .found(let text, let at, let session):
                 changes[id] = {
                     $0.sentLookup = .found
                     $0.sentText = text
                     $0.sentAt = at
+                    $0.sentSession = session
                 }
             case .notFound:
                 changes[id] = { $0.sentLookup = .notFound }
@@ -77,6 +80,19 @@ final class VoiceLog {
         }
         store.update(changes)
         logger.info("Looked up what \(dictations.count) dictations were sent as")
+        let checked = store.records.filter { results[$0.id] != nil }.compactMap(Self.contextPickWasRight)
+        if !checked.isEmpty {
+            let wrong = checked.count(where: { !$0 })
+            let line = "Context session checked against where \(checked.count) dictations went: \(wrong) wrong"
+            if wrong > 0 { logger.warning("\(line, privacy: .public)") } else { logger.info("\(line, privacy: .public)") }
+        }
+    }
+
+    /// Whether the polish was given the conversation the dictation was then
+    /// sent into; nil when it had none or where it went isn't known.
+    static func contextPickWasRight(_ record: VoiceInputRecord) -> Bool? {
+        guard let picked = record.contextSession, let sent = record.sentSession else { return nil }
+        return picked == sent
     }
 
     /// Not looked up yet — or found to have no source before its app got one.
@@ -142,7 +158,7 @@ final class VoiceLog {
             var lines = [
                 "# 语音输入 \(day)",
                 "",
-                "\(sorted.count) 条 · 对上 \(found.count) · 改过 \(edited.count)",
+                "\(sorted.count) 条 · 对上 \(found.count) · 改过 \(edited.count)" + contextSummary(sorted),
                 "",
             ]
             for record in sorted {
@@ -152,13 +168,25 @@ final class VoiceLog {
         }
     }
 
+    /// " · Claude 13 条 · 有上下文 11 · 挑错 0" on days the polish had a
+    /// conversation: how many dictations into Claude had one, and how many
+    /// were then sent into another session.
+    private static func contextSummary(_ records: [VoiceInputRecord]) -> String {
+        guard records.contains(where: { $0.contextSession != nil }) else { return "" }
+        let intoClaude = records.filter { $0.targetApp == "Claude" }.count
+        let withContext = records.filter { $0.contextSession != nil }.count
+        let wrong = records.filter { contextPickWasRight($0) == false }.count
+        return " · Claude \(intoClaude) 条 · 有上下文 \(withContext) · 挑错 \(wrong)"
+    }
+
     /// "- 14:02 Warp · 改过" and its 识别 / 润色 / 发出 lines; a dictation
     /// sent as it was pasted is one line (plus 识别 when polish changed it).
     private static func entry(_ record: VoiceInputRecord, time: String) -> [String] {
         let raw = oneLine(record.rawTranscript)
         let text = oneLine(record.text)
         let sent = record.sentText.map(oneLine)
-        let head = "- \(time) \(record.targetApp ?? "?")"
+        let pickedWrong = contextPickWasRight(record) == false ? " · 上下文挑错" : ""
+        let head = "- \(time) \(record.targetApp ?? "?")\(pickedWrong)"
         let recognized = raw == text ? [] : ["  识别 \(raw)"]
 
         switch record.sentLookup {

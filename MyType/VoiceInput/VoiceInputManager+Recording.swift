@@ -73,6 +73,10 @@ extension VoiceInputManager {
 
             // Have the polish session up before the user stops speaking.
             Task.detached(priority: .utility) { await self.preparePolishSession() }
+            // Claude builds the accessibility tree the context reads only when asked.
+            if let pid = capturedTargetPID {
+                Task.detached(priority: .utility) { ConversationContext.prepare(pid: pid) }
+            }
 
             // Start level monitoring
             startLevelMonitor()
