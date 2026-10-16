@@ -7,6 +7,7 @@ import SwiftUI
 
 // MARK: - NSPanel Wrapper
 
+@MainActor
 final class VoiceInputPanel {
     /// The transparent host around the 36pt capsule: room for the drop
     /// shadow and, while processing, the cancel button to its left.
@@ -14,6 +15,9 @@ final class VoiceInputPanel {
 
     private var panel: NSPanel?
     private weak var manager: VoiceInputManager?
+    /// Bumped by every show and hide; a hide's completion orders the panel
+    /// out only if nothing came after it.
+    private var visibilityGeneration = 0
 
     init(manager: VoiceInputManager) {
         self.manager = manager
@@ -52,9 +56,10 @@ final class VoiceInputPanel {
             display: true
         )
 
-        // Cancel any in-flight hide animation so a rapid
-        // cancel → re-record doesn't get orderOut'd by the
-        // old completion handler.
+        // A re-record during the hide's fade cuts that animation short and
+        // its completion runs right after the alpha is reset to 0 below —
+        // checking alphaValue there can't tell it apart from a real hide.
+        visibilityGeneration += 1
         panel.animations = [:]
         panel.orderFrontRegardless()
         panel.alphaValue = 0
@@ -68,14 +73,16 @@ final class VoiceInputPanel {
     func hidePanel() {
         guard let panel else { return }
         let panelRef = panel
+        visibilityGeneration += 1
+        let generation = visibilityGeneration
         panelRef.animations = [:]
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.25
             panelRef.animator().alphaValue = 0
-        }, completionHandler: { [weak panelRef] in
-            // Only order out if still invisible — a new showPanel
-            // may have already brought it back.
-            if panelRef?.alphaValue == 0 {
+        }, completionHandler: { [weak self, weak panelRef] in
+            // Only order out if no showPanel came after this hide.
+            MainActor.assumeIsolated {
+                guard self?.visibilityGeneration == generation else { return }
                 panelRef?.orderOut(nil)
             }
         })
