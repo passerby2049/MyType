@@ -51,3 +51,4 @@ eval/seed-dump/seed-dump
 eval/guard-check/guard-check
 eval/align-check/align-check
 eval/context-check/context-check
+eval/misread-check/misread-check
