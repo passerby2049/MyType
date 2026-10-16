@@ -53,6 +53,7 @@ extension VoiceInputManager {
             audioRecorder = recorder
             recordingStartTime = .now
             levelHistory = []
+            levelMeter = VoiceLevelMeter()
             state = .recording
             logger.debug("recording STARTED")
             // Tell the global hotkey monitor to swallow Esc presses
@@ -99,6 +100,13 @@ extension VoiceInputManager {
 
         stopRecorderAndTimer()
         recordingDuration = duration
+        if !levelHistory.isEmpty {
+            let silent = levelHistory.filter { $0 == 0 }.count * 100 / levelHistory.count
+            let pinned = levelHistory.filter { $0 >= 1 }.count * 100 / levelHistory.count
+            let gate = levelMeter.gate
+            let heard = levelMeter.learnFloor().map { String(format: "%.1f", $0) } ?? "–"
+            logger.info("Meter: gate \(gate, format: .fixed(precision: 1)) dB, \(silent)% of \(self.levelHistory.count) samples below it, \(pinned)% at the top; room's quiet tenth \(heard, privacy: .public) dB → next gate \(self.levelMeter.gate, format: .fixed(precision: 1))")
+        }
 
         // Play done sound
         if soundEffectsEnabled {
@@ -146,15 +154,12 @@ extension VoiceInputManager {
             while !Task.isCancelled, state == .recording {
                 if let recorder = audioRecorder, recorder.isRecording {
                     recorder.updateMeters()
-                    let level = recorder.averagePower(forChannel: 0)
-                    // Normalize dB to 0.0 - 1.0 range
-                    // Typical range: -160 (silence) to 0 (max)
-                    let normalizedLevel = max(0, (level + 50) / 50)
-                    audioLevel = normalizedLevel
-                    levelHistory.append(normalizedLevel)
+                    let level = levelMeter.level(power: recorder.averagePower(forChannel: 0))
+                    audioLevel = level
+                    levelHistory.append(level)
                     recordingDuration = recorder.currentTime
                 }
-                try? await Task.sleep(for: .milliseconds(100))
+                try? await Task.sleep(for: .milliseconds(33))
             }
         }
     }

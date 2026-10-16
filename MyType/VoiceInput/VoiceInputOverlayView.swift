@@ -312,7 +312,8 @@ struct VoiceInputWaveformBar: View {
         let envelope = 1.0 - pow(distFromCenter, 1.6) * 0.85
 
         let levelContribution = Double(level) * maxHeight * envelope
-        let noise = sin(Double(index) * 1.7 + randomOffset) * 2.2 * Double(max(level, 0.15))
+        // Wobble only while there's sound: at the gate's 0 the bars stand still.
+        let noise = sin(Double(index) * 1.7 + randomOffset) * 2.2 * Double(level)
 
         return max(base, levelContribution + base + noise)
     }

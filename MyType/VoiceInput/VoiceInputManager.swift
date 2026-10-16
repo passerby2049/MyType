@@ -58,9 +58,10 @@ final class VoiceInputManager {
     /// How the last dictation was delivered. The overlay shows its
     /// success mark only for `.inserted`; nil until a delivery returns.
     var deliveryStatus: VoiceInputInsertStatus?
-    /// Every level read while recording (one per ~100 ms), so the overlay
+    /// Every level read while recording (one per ~33 ms), so the overlay
     /// can draw the whole recording's loudness while it is transcribed.
     @ObservationIgnored var levelHistory: [Float] = []
+    @ObservationIgnored var levelMeter = VoiceLevelMeter()
 
     // MARK: - Configuration Constants
 
