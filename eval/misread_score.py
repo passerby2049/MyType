@@ -1,5 +1,6 @@
 """Scores the misread-words judgment (docs/design-misread-words.md 完成标准) against hand labels.
-  python3 misread_score.py [answers]     e.g. "1a 2b 3a …" from data/listen-misread (the word heard on the recording)
+  python3 misread_score.py [answers]     e.g. "1a 2b 3a …": the word said on each recording of data/listen-misread;
+                                         without it, the user's picks there (picks.json: item id → option, 0 = couldn't tell)
 Labels: data/mr-labels.jsonl, one per candidate ({"id", "pair": "heard>meant", "truth"}) plus the true pronunciation
 misreads the local pass can't see ("candidate": false). A label that the recording decides has "listen": n and
 "by_answer": the truth for each option (null: no misread there); without an answer the "truth" written is used, and
@@ -7,11 +8,14 @@ an answer 0 (couldn't tell) leaves the item out. Judgments: data/mr-a-judge.json
 context) and data/mr-b-judge.jsonl (April–May, context = the previous prompt only), from misread-check judge.
 Precision: of the candidates judged "sound", how many are truly pronunciation. Recall: of the true pronunciation
 misreads, how many were judged "sound" (with the right word)."""
-import json, sys
+import json, os, sys
 
 answers = {}
 for a in (sys.argv[1].split() if len(sys.argv) > 1 else []):
     answers[int(a[:-1])] = 0 if a[-1] == "0" else ord(a[-1]) - 96
+if len(sys.argv) == 1 and os.path.exists("data/listen-misread/picks.json"):
+    picks = json.load(open("data/listen-misread/picks.json"))
+    answers = {it["n"]: picks[it["id"]] for it in json.load(open("data/listen-misread/items.json")) if it["id"] in picks}
 
 def truth(label):
     n = label.get("listen")
