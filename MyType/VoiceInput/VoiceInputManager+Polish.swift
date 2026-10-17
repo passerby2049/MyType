@@ -105,7 +105,7 @@ extension VoiceInputManager {
             break
         }
 
-        let frontApp = NSWorkspace.shared.frontmostApplication
+        let frontApp = Self.frontmostApplication()
         capturedTargetPID = frontApp?.processIdentifier
         capturedTargetName = frontApp?.localizedName
         // Mouse position is the fallback anchor when AX selection lookup

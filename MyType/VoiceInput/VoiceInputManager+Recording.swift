@@ -21,7 +21,7 @@ extension VoiceInputManager {
         currentRecordingID = id
 
         // Snapshot the target app NOW, before the overlay can steal focus.
-        let frontApp = NSWorkspace.shared.frontmostApplication
+        let frontApp = Self.frontmostApplication()
         capturedTargetPID = frontApp?.processIdentifier
         capturedTargetName = frontApp?.localizedName
         logger.info("Captured target: \(self.capturedTargetName ?? "unknown") (pid=\(self.capturedTargetPID ?? -1))")
@@ -89,6 +89,25 @@ extension VoiceInputManager {
             logger.error("Failed to start recording: \(error) — dismissing")
             silentlyDismiss(.recordingFailed(error.localizedDescription))
         }
+    }
+
+    /// The app in front. Right after MyType starts, NSWorkspace can still say
+    /// loginwindow until the user switches apps once (10/17: two dictations
+    /// into Claude recorded as loginwindow, so no conversation and no misread
+    /// check); then ask Accessibility which app has the focus.
+    static func frontmostApplication() -> NSRunningApplication? {
+        let workspace = NSWorkspace.shared.frontmostApplication
+        guard workspace == nil || workspace?.bundleIdentifier == "com.apple.loginwindow" else { return workspace }
+        let system = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(system, 0.2)
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(system, kAXFocusedApplicationAttribute as CFString, &value) == .success,
+              let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return workspace }
+        var pid: pid_t = 0
+        AXUIElementGetPid(value as! AXUIElement, &pid)
+        let focused = NSRunningApplication(processIdentifier: pid)
+        logger.info("Front app from NSWorkspace was \(workspace?.localizedName ?? "nil", privacy: .public); focus is in \(focused?.localizedName ?? "nil", privacy: .public)")
+        return focused ?? workspace
     }
 
     func finishRecording() {
