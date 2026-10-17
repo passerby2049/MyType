@@ -182,6 +182,7 @@ private struct PolishSettings: View {
     @AppStorage(LLMRewriter.modelKey) private var model = ""
     @AppStorage(LLMRewriter.polishModeKey) private var modeRaw = LLMRewriter.polishMode.rawValue
     @AppStorage(LLMRewriter.effortKey) private var effort = LLMRewriter.defaultEffort
+    @AppStorage(MisreadCoach.enabledKey) private var misreadHints = true
     @State private var provider = AIProvider.provider(for: LLMRewriter.resolvedModel)
     @State private var trial: String?
     @State private var trying = false
@@ -211,6 +212,9 @@ private struct PolishSettings: View {
                     }
                     SettingsRow(title: "超过多久先键入原文", detail: "润色回来以后会补进历史，不会白跑。") {
                         Text("10 秒").font(Theme.body).foregroundStyle(.secondary)
+                    }
+                    SettingsRow(title: "英语读音提示", detail: "在 Claude 里说英语时，被听成别的词的那个词，键入后在浮条旁边显示，可以点开练。关了只是不显示，判断照做、照记。") {
+                        Toggle("英语读音提示", isOn: $misreadHints).labelsHidden().toggleStyle(.switch).tint(Theme.accent)
                     }
                 }
             }

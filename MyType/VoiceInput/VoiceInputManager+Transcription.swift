@@ -73,6 +73,23 @@ extension VoiceInputManager {
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Recognize a recording exactly as `request` says (practice takes):
+    /// its language hint and context only — nothing from the vocabulary.
+    func transcribe(at url: URL, request: RecognitionRequest) async throws -> String {
+        let choice = VoiceInputEngineChoice.current
+        if choice == .appleSpeech {
+            return try await transcribeWithAppleSpeech(at: url, language: VoiceInputLanguage(rawValue: request.language ?? "") ?? .english)
+        }
+        let model = try await qwen3Model(for: choice)
+        let options = Qwen3DecodingOptions(language: request.language, context: request.context)
+        let text = try await Task.detached(priority: .userInitiated) {
+            defer { Memory.clearCache() }
+            let samples = try AudioFileLoader.load(url: url, targetSampleRate: 16000)
+            return try model.transcribeCheckingCancellation(audio: samples, sampleRate: 16000, options: options)
+        }.value
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// The vocabulary as Qwen3-ASR's context: a short list works best (a
     /// long one is slower and no more accurate).
     static let recognitionContextLimit = 60

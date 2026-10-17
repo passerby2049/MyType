@@ -1,9 +1,11 @@
 // misread-check — misread English words, offline (docs/design-misread-words.md 二, step 2).
-//   misread-check                          tests for the local candidate rules (MisreadCandidates) and the reply parser
+//   misread-check                          tests for the local candidate rules (MisreadCandidates), the reply parser, the
+//                                          sheet's aligned rows and model, the 「这个我没读错」 labels, the hotkey's route
+//                                          and what practice recognition is given
 //   misread-check judge <in> <out>         over an eval set ({"id", "raw", "polished", "context"} per line): the local
 //                                          candidates, then MisreadJudge's warm session for the lines that have any;
 //                                          writes {"id", "candidates", "verdicts", "seconds"} (lines already there skipped)
-// Build: ./build.sh (LifeKit's WordDiff + Misreads as a module, then this with the app's Claude Code session files)
+// Build: ./build.sh (LifeKit's WordDiff + Misreads as a module, then this with the app's misread files)
 import Foundation
 
 var failures = 0
@@ -70,6 +72,63 @@ func tests() {
     let message = MisreadJudge.message(candidates: [.init(heard: "cars", meant: "cards")], raw: "r", polished: "p", conversation: "c")
     check(message.contains("<candidates>\ncars → cards\n</candidates>") && message.contains("<context>\nc\n</context>"), "the message")
 
+}
+
+@MainActor func sheetTests() {
+    // The aligned rows: as written, fillers and repeats out, the misread word marked, the polish's other changes not
+    let cols = MisreadAlignment.columns(raw: "Uh, the height of the the two cars is not same.", polished: "The height of the two cards is not the same.",
+                                        misreads: [("cars", "cards")])
+    check(cols.first?.said == "the" && cols.first?.meant == "The", "kept as written, the filler gone")
+    check(cols.filter(\.misread).map { "\($0.said ?? "-")>\($0.meant ?? "-")" } == ["cars>cards"], "only cars → cards marked")
+    check(cols.contains { $0.said == nil && $0.meant == "the" && !$0.misread }, "a word the polish added: unmarked")
+    check(cols.filter { $0.said == "the" }.count == 2, "the repeat once")
+    check(MisreadAlignment.columns(raw: "Put it over their.", polished: "Put it over there.", misreads: []).allSatisfy { $0.said != nil && $0.meant != nil },
+          "same sound lines up")
+
+    // The sheet
+    let id = UUID()
+    let model = MisreadSheetModel(recordID: id, raw: "the two cars and the big rock", polished: "the two cards and the pig lock", createdAt: .now, words: [
+        .init(misread: VoiceMisread(word: "cards", heard: "cars", ipa: "/kɑrdz/", tip: "词尾 dz 没出来"), earlier: []),
+        .init(misread: VoiceMisread(word: "lock", heard: "rock", ipa: nil, tip: nil), earlier: []),
+    ])
+    check(model.barTitle == "读音 · 2 个词", "bar title, two words")
+    check(model.columns.filter(\.misread).count == 2, "both marked")
+    let label = model.notMisread("lock", at: Date(timeIntervalSince1970: 1_800_000_000))
+    check(label?.record == id && label?.word == "lock" && label?.heard == "rock" && label?.kind == "sound" && label?.label == "notMisread",
+          "the label says record, word, heard, verdict")
+    check(model.words.map(\.misread.word) == ["cards"] && model.columns.filter(\.misread).count == 1, "the word leaves the sheet and the rows")
+    check(model.barTitle == "读音 · cards", "bar title, one word")
+    check(model.notMisread("lock") == nil, "twice: nothing")
+    let take = model.addTake(text: "the two cars, the two cards", audio: nil)
+    check(take.id == 1 && take.words.filter { $0.1 == .heardAgain }.map(\.0) == ["cars,"] && take.words.filter { $0.1 == .right }.map(\.0) == ["cards"],
+          "a take: heard again red, right green")
+    check(model.addTake(text: "", audio: nil).id == 2, "takes numbered on")
+    _ = model.notMisread("cards")
+    check(model.isEmpty, "the last word gone: the sheet is empty")
+
+    // The labels file: appended, never rewritten
+    let file = FileManager.default.temporaryDirectory.appending(path: "misread-labels-\(UUID().uuidString).jsonl")
+    if let label {
+        try? MisreadLabels.append(label, to: file)
+        try? MisreadLabels.append(label, to: file)
+    }
+    let back = MisreadLabels.all(in: file)
+    check(back.count == 2 && back.first == label, "labels round-trip, one line each")
+    try? FileManager.default.removeItem(at: file)
+
+    // The hotkey: practice only while the sheet is selected and no dictation is under way; a take gets its stop
+    check(HotkeyRoute.route(sheetSelected: false, practising: false, dictationBusy: false) == .dictation, "not selected → dictation")
+    check(HotkeyRoute.route(sheetSelected: true, practising: false, dictationBusy: false) == .practice, "selected → practice")
+    check(HotkeyRoute.route(sheetSelected: true, practising: false, dictationBusy: true) == .dictation, "selected while dictating → dictation")
+    check(HotkeyRoute.route(sheetSelected: false, practising: true, dictationBusy: false) == .practice, "a take under way → practice")
+    var wrong = 0
+    for i in 0..<40 where HotkeyRoute.route(sheetSelected: i % 2 == 0, practising: false, dictationBusy: false) != (i % 2 == 0 ? .practice : .dictation) { wrong += 1 }
+    check(wrong == 0, "20 each way, alternating")
+
+    // Practice recognition gets nothing to lean on and no polish
+    check(RecognitionRequest.practice.context == nil && !RecognitionRequest.practice.polish && RecognitionRequest.practice.language == "en",
+          "practice: no context, no vocabulary, no polish")
+
     print(failures == 0 ? "all passed" : "\(failures) failed")
 }
 
@@ -119,5 +178,6 @@ if args.count == 4 && args[1] == "judge" {
     try await judge(args[2], args[3])
 } else {
     tests()
+    sheetTests()
     exit(failures == 0 ? 0 : 1)
 }

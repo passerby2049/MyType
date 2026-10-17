@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		AA000001AAAA000000000001 /* Qwen3ASR in Frameworks */ = {isa = PBXBuildFile; productRef = AA000002AAAA000000000001 /* Qwen3ASR */; };
 		AA000001AAAA000000000002 /* AudioCommon in Frameworks */ = {isa = PBXBuildFile; productRef = AA000002AAAA000000000002 /* AudioCommon */; };
+		AA000001AAAA000000000003 /* LifeKit in Frameworks */ = {isa = PBXBuildFile; productRef = AA000002AAAA000000000003 /* LifeKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -30,6 +31,7 @@
 			files = (
 				AA000001AAAA000000000001 /* Qwen3ASR in Frameworks */,
 				AA000001AAAA000000000002 /* AudioCommon in Frameworks */,
+				AA000001AAAA000000000003 /* LifeKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -74,6 +76,7 @@
 			packageProductDependencies = (
 				AA000002AAAA000000000001 /* Qwen3ASR */,
 				AA000002AAAA000000000002 /* AudioCommon */,
+				AA000002AAAA000000000003 /* LifeKit */,
 			);
 			productName = MyType;
 			productReference = 61CA6E682F9084570074F121 /* MyType.app */;
@@ -105,6 +108,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				AA000003AAAA000000000001 /* XCRemoteSwiftPackageReference "speech-swift" */,
+				AA000003AAAA000000000002 /* XCLocalSwiftPackageReference "../LifeKit" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 61CA6E692F9084570074F121 /* Products */;
@@ -338,6 +342,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		AA000003AAAA000000000002 /* XCLocalSwiftPackageReference "../LifeKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../LifeKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		AA000003AAAA000000000001 /* XCRemoteSwiftPackageReference "speech-swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -359,6 +370,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = AA000003AAAA000000000001 /* XCRemoteSwiftPackageReference "speech-swift" */;
 			productName = AudioCommon;
+		};
+		AA000002AAAA000000000003 /* LifeKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA000003AAAA000000000002 /* XCLocalSwiftPackageReference "../LifeKit" */;
+			productName = LifeKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

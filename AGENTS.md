@@ -34,7 +34,12 @@ MyType/
 │   ├── VocabularyStore.swift    — Custom vocabulary
 │   ├── VoiceInputTypes.swift    — Engine/language enums
 │   ├── VoiceInputSettingsView.swift — Two-column settings (NavigationSplitView)
-│   └── VoiceInputHistoryView.swift  — History with audio playback
+│   ├── VoiceInputHistoryView.swift  — History with audio playback
+│   ├── MisreadCandidates.swift — Misread English words: raw vs polished, one word for another (LifeKit WordDiff)
+│   ├── MisreadJudge.swift      — Its own warm Sonnet session: sound / newWord / wording / weak / unsure
+│   ├── MisreadCoach.swift      — After typing: judge, record.misreads, the bar and sheet, practice takes, hotkey route
+│   ├── MisreadPanels.swift / MisreadSheetView.swift / MisreadSheetModel.swift / MisreadAlignment.swift — the sheet
+│   └── MisreadPractice.swift   — Take recorder; RecognitionRequest.practice (no context, no polish)
 └── Transcription/               — STT engines
     ├── TranscriptionEngine.swift — Protocol + engine registry
     └── AppleSpeechEngine.swift   — Apple Speech backend

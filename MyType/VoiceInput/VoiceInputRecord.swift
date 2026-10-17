@@ -53,6 +53,7 @@ struct VoiceInputRecord: Codable, Identifiable {
     var polishCold: Bool? = nil           // The polish turn had to start its session (nil = not Claude Code / old record)
     var contextSession: String? = nil     // Claude Code session whose conversation the polish got (nil = none)
     var sentSession: String? = nil        // Claude Code session it was sent into, when that's known (VoiceLog)
+    var misreads: [VoiceMisread]? = nil   // English words heard as other words (MisreadCoach); [] = judged, none; nil = not judged
 
     init(
         id: UUID = UUID(),

@@ -30,6 +30,8 @@ enum MisreadJudge {
     }
 
     static let session = ClaudeCodeVoicePolishSession()
+    /// The record whose candidates were judged last (MisreadTrial waits on it).
+    @MainActor static var lastFinished: UUID?
     static let model = "cc-sonnet"
     static let effort = "low"
 

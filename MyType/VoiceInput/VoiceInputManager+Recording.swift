@@ -73,6 +73,9 @@ extension VoiceInputManager {
 
             // Have the polish session up before the user stops speaking.
             Task.detached(priority: .utility) { await self.preparePolishSession() }
+            // The misread sheet shrinks to its bar; the judge warms up for Claude.
+            MisreadCoach.shared.dictationStarted()
+            MisreadCoach.shared.prepare(targetApp: capturedTargetName)
             // Claude builds the accessibility tree the context reads only when asked.
             if let pid = capturedTargetPID {
                 Task.detached(priority: .utility) { ConversationContext.prepare(pid: pid) }

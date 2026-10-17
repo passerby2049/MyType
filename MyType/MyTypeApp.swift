@@ -34,6 +34,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Snapshot.run(into: dir)
             return
         }
+        if let dir = MisreadTrial.directory {
+            MisreadTrial.run(into: dir)
+            return
+        }
         setupMainMenu()
         setupStatusItem()
         VoiceInputManager.shared.activate()
