@@ -8,17 +8,40 @@
 import AppKit
 import SwiftUI
 
-/// A panel that can take the keyboard without activating MyType; esc goes to `onEscape`.
+/// A panel that can take the keyboard without activating MyType; esc goes to `onEscape`. A press that
+/// moves more than 3 pt drags the panel (from anywhere: the window's own drag doesn't start over glass);
+/// one that doesn't is a click as usual.
 final class MisreadKeyPanel: NSPanel {
     var onEscape: (() -> Void)?
+    private var press: (mouse: NSPoint, origin: NSPoint)?
+    private var dragging = false
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
     override func sendEvent(_ event: NSEvent) {
-        if event.type == .keyDown, event.keyCode == 53 {
+        switch event.type {
+        case .keyDown where event.keyCode == 53:
             onEscape?()
             return
+        case .leftMouseDown:
+            press = (NSEvent.mouseLocation, frame.origin)
+            dragging = false
+        case .leftMouseDragged:
+            if let press {
+                let mouse = NSEvent.mouseLocation
+                let dx = mouse.x - press.mouse.x, dy = mouse.y - press.mouse.y
+                if dragging || hypot(dx, dy) > 3 {
+                    dragging = true
+                    setFrameOrigin(NSPoint(x: press.origin.x + dx, y: press.origin.y + dy))
+                    return
+                }
+            }
+        case .leftMouseUp:
+            press = nil
+            if dragging { dragging = false; return }
+        default:
+            break
         }
         super.sendEvent(event)
     }
@@ -30,9 +53,14 @@ final class MisreadPanels {
     /// Around the glass, for its shadow and the selection glow.
     static let margin: CGFloat = 12
 
+    /// Where the user dragged the sheet: its top-left corner, kept across sentences and launches.
+    static let positionKey = "misreadSheetTopLeft"
+
     private(set) var bar: NSPanel?
     private(set) var sheet: MisreadKeyPanel?
     private var observers: [NSObjectProtocol] = []
+    /// Set while the sheet is moved from here, so only a drag counts as the user's position.
+    private var placing = false
 
     /// Called with true when the sheet takes the keyboard, false when it gives it back.
     var onSelection: ((Bool) -> Void)?
@@ -97,6 +125,12 @@ final class MisreadPanels {
         observers.append(center.addObserver(forName: NSWindow.didResignKeyNotification, object: sheet, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.onSelection?(false) }
         })
+        observers.append(center.addObserver(forName: NSWindow.didMoveNotification, object: sheet, queue: .main) { [weak self, weak sheet] _ in
+            MainActor.assumeIsolated {
+                guard let self, !self.placing, let frame = sheet?.frame else { return }
+                UserDefaults.standard.set(NSStringFromPoint(NSPoint(x: frame.minX, y: frame.maxY)), forKey: Self.positionKey)
+            }
+        })
     }
 
     private func fade(_ panel: NSPanel, in show: Bool) {
@@ -128,6 +162,10 @@ final class MisreadPanels {
         panel.isFloatingPanel = true
         panel.becomesKeyOnlyIfNeeded = false
         panel.isReleasedWhenClosed = false
+        // The glass is drawn by the window server: the window's own pixels there are clear, and a
+        // click on clear pixels goes through to the window behind. Said outright, every click lands
+        // here — so the sheet is selected, and dragged, by any part of it.
+        panel.ignoresMouseEvents = false
         let host = NSHostingView(rootView: view)
         host.sizingOptions = [.intrinsicContentSize]
         host.wantsLayer = true
@@ -150,8 +188,17 @@ final class MisreadPanels {
         if let host = sheet.contentView {
             let size = host.fittingSize
             let pillTop = frame.minY + 12 + 36
-            sheet.setFrame(NSRect(x: frame.midX - size.width / 2, y: pillTop + 10 - Self.margin,
-                                  width: size.width, height: size.height), display: true)
+            var rect = NSRect(x: frame.midX - size.width / 2, y: pillTop + 10 - Self.margin, width: size.width, height: size.height)
+            // Where the user dragged it, if that's still on a screen: the top-left stays, it grows downwards.
+            if let saved = UserDefaults.standard.string(forKey: Self.positionKey).map(NSPointFromString),
+               let screen = NSScreen.screens.first(where: { $0.visibleFrame.contains(saved) }) {
+                let visible = screen.visibleFrame.insetBy(dx: -Self.margin, dy: -Self.margin)
+                rect.origin = NSPoint(x: min(max(saved.x, visible.minX), visible.maxX - size.width),
+                                      y: max(saved.y - size.height, visible.minY))
+            }
+            placing = true
+            sheet.setFrame(rect, display: true)
+            placing = false
         }
     }
 }

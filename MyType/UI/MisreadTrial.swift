@@ -30,6 +30,10 @@ enum MisreadTrial {
         coach.model?.addTake(text: "The height of the two cars is not the same.", audio: nil)
         coach.model?.addTake(text: "the two cards", audio: nil)
         settle(0.6)
+        if let i = CommandLine.arguments.firstIndex(of: "-misread-hold"), i + 1 < CommandLine.arguments.count {
+            hold(coach, seconds: Double(CommandLine.arguments[i + 1]) ?? 20)
+            return
+        }
 
         let backdrop = makeBackdrop()
         for (appearance, suffix) in [(NSAppearance.Name.aqua, "light"), (.darkAqua, "dark")] {
@@ -143,6 +147,72 @@ enum MisreadTrial {
         return ["timing: \(judged) sentences judged, \(delays.count) put up the bar; typed → bar median \(String(format: "%.2f", delays.isEmpty ? 0 : delays[delays.count / 2])) s, p90 \(String(format: "%.2f", p90)) s, max \(String(format: "%.2f", delays.last ?? 0)) s: \(delays.map { String(format: "%.1f", $0) })"]
     }
 
+    /// The sheet left on screen for a while, for a hand (or a pointer tool) to drag: where it was, where it ended up,
+    /// what was kept. The kept position is removed again, so the real app doesn't inherit it.
+    private static func hold(_ coach: MisreadCoach, seconds: Double) {
+        let quartz = { (r: CGRect) -> String in
+            let h = NSScreen.screens.first?.frame.height ?? 0
+            return "x \(Int(r.minX))…\(Int(r.maxX)), y \(Int(h - r.maxY))…\(Int(h - r.minY)) (top-left origin)"
+        }
+        let saved = UserDefaults.standard.string(forKey: MisreadPanels.positionKey)
+        UserDefaults.standard.removeObject(forKey: MisreadPanels.positionKey)
+        coach.expand()
+        settle(0.5)
+        print("sheet at \(quartz(coach.panelFrames.sheet))")
+        fflush(stdout)
+        var events: [String] = []
+        let monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]) { event in
+            events.append("\(event.type.rawValue)@\(event.window === NSApp.windows.first(where: { $0 is MisreadKeyPanel }) ? "sheet" : "other")")
+            return event
+        }
+        let global = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp]) { event in
+            events.append("\(event.type.rawValue)@elsewhere(window \(event.windowNumber))")
+        }
+        if CommandLine.arguments.contains("-misread-drag") {
+            // A real drag through the HID stream: press in the header's empty middle, move 300 left and 250 up.
+            let h = NSScreen.screens.first?.frame.height ?? 0
+            let f = coach.panelFrames.sheet
+            let start = CGPoint(x: f.midX, y: h - f.maxY + MisreadPanels.margin + 30)
+            if CommandLine.arguments.contains("-misread-click-button") {
+                // 「练完」, right of the header: it has pixels of its own.
+                let button = CGPoint(x: f.maxX - MisreadPanels.margin - 16 - 72, y: start.y - 4)
+                DispatchQueue.global().async {
+                    for type in [CGEventType.mouseMoved, .leftMouseDown, .leftMouseUp] {
+                        CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: button, mouseButton: .left)?.post(tap: .cghidEventTap)
+                        usleep(40_000)
+                    }
+                }
+                settle(0.8)
+                print("clicked 练完 at \(Int(button.x)),\(Int(button.y)): sheet \(coach.model == nil ? "gone" : "still there")")
+            }
+            // Posted from another thread: the window's drag runs its own loop on this one.
+            DispatchQueue.global().async {
+                func send(_ type: CGEventType, _ p: CGPoint) {
+                    CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: p, mouseButton: .left)?.post(tap: .cghidEventTap)
+                    usleep(30_000)
+                }
+                send(.mouseMoved, start)
+                send(.leftMouseDown, start)
+                for i in 1...20 { send(.leftMouseDragged, CGPoint(x: start.x - CGFloat(i) * 15, y: start.y - CGFloat(i) * 12.5)) }
+                send(.leftMouseUp, CGPoint(x: start.x - 300, y: start.y - 250))
+            }
+            settle(1.5)
+            print("dragged from \(Int(start.x)),\(Int(start.y)) by -300,-250; Accessibility trusted: \(AXIsProcessTrusted()), may post events: \(CGPreflightPostEventAccess())")
+        }
+        settle(seconds)
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        if let global { NSEvent.removeMonitor(global) }
+        print("sheet window \(NSApp.windows.first(where: { $0 is MisreadKeyPanel })?.windowNumber ?? -1)")
+        print("mouse events seen: \(events.count) \(events.prefix(4)) … \(events.suffix(2))")
+        print("sheet now at \(quartz(coach.panelFrames.sheet)); kept \(UserDefaults.standard.string(forKey: MisreadPanels.positionKey) ?? "nothing")")
+        coach.model?.addTake(text: "the log in the terminal", audio: nil)
+        coach.relayoutForTrial()
+        settle(0.5)
+        print("after a take: \(quartz(coach.panelFrames.sheet))")
+        if let saved { UserDefaults.standard.set(saved, forKey: MisreadPanels.positionKey) } else { UserDefaults.standard.removeObject(forKey: MisreadPanels.positionKey) }
+        NSApp.terminate(nil)
+    }
+
     private static func makeBackdrop() -> NSWindow {
         let frame = NSScreen.main?.frame ?? .zero
         let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
@@ -196,7 +266,11 @@ enum MisreadTrial {
         process.waitUntilExit()
     }
 
+    /// Wait, handing the app its events meanwhile (the trial runs inside launch, before NSApp's own loop).
     private static func settle(_ seconds: TimeInterval) {
-        RunLoop.current.run(until: Date().addingTimeInterval(seconds))
+        let until = Date().addingTimeInterval(seconds)
+        while let event = NSApp.nextEvent(matching: .any, until: until, inMode: .default, dequeue: true) {
+            NSApp.sendEvent(event)
+        }
     }
 }

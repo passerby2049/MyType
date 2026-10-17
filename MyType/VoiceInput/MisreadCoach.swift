@@ -240,6 +240,9 @@ final class MisreadCoach {
     /// What a click on the sheet does to it (MisreadTrial).
     func selectForTrial() { panels.select() }
 
+    /// Resize after the trial changed the model.
+    func relayoutForTrial() { panels.relayout() }
+
     // MARK: - Sound
 
     /// The system's American voice (Heart's word clips aren't on the Mac yet).
