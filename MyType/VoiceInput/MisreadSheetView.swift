@@ -1,6 +1,6 @@
 // Abstract:
 // The practice sheet and its small bar (docs/design-misread-words.md 三, mockup
-// docs/misread-words-ui.html), in clear Liquid Glass: the two aligned rows,
+// docs/misread-words-ui.html), in frosted Liquid Glass: the two aligned rows,
 // a row per misread word (IPA, what it was heard as, ▶, 慢, 这个我没读错),
 // the takes said while practising, and a status line. Text follows the
 // system's light or dark; amber marks the misread words and the selection.
@@ -10,7 +10,6 @@ import SwiftUI
 struct MisreadSheetView: View {
     var model: MisreadSheetModel
     var coach: MisreadCoach
-    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         GlassEffectContainer(spacing: 10) {
@@ -27,19 +26,30 @@ struct MisreadSheetView: View {
             }
             .padding(16)
             .frame(width: MisreadPanels.sheetWidth, alignment: .leading)
-            .glassEffect(.misread(scheme), in: .rect(cornerRadius: 24))
-            .overlay {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .strokeBorder(Theme.accent.opacity(model.selected ? 0.9 : 0), lineWidth: 1.5)
-                    .shadow(color: Theme.accent.opacity(model.selected ? 0.55 : 0), radius: 8)
-                    .allowsHitTesting(false)
-            }
-            .opacity(model.selected ? 1 : 0.86)
+            .glassEffect(.regular, in: .rect(cornerRadius: 24))
+            // Selection is only a glow outside its edge; the sheet itself stays as it was.
+            .overlay { glow }
         }
-        .padding(12)
+        .padding(MisreadPanels.margin)
         .animation(Theme.ease, value: model.selected)
         // MyType is never the active app; without this every control draws as inactive (grey).
         .environment(\.controlActiveState, .key)
+    }
+
+    /// An amber glow around the sheet while it's selected, kept off the sheet so the text stays as clear.
+    private var glow: some View {
+        let shape = RoundedRectangle(cornerRadius: 24, style: .continuous)
+        return shape
+            .stroke(Theme.accent, lineWidth: 2)
+            .shadow(color: Theme.accent.opacity(0.9), radius: 3)
+            .shadow(color: Theme.accent.opacity(0.6), radius: 6)
+            .mask {
+                Rectangle().padding(-MisreadPanels.margin)
+                    .overlay { shape.blendMode(.destinationOut) }
+                    .compositingGroup()
+            }
+            .opacity(model.selected ? 1 : 0)
+            .allowsHitTesting(false)
     }
 
     private var header: some View {
@@ -81,7 +91,7 @@ struct MisreadSheetView: View {
                 .help("读正确的整句")
         }
         .padding(10)
-        .glassEffect(.clear.tint(scheme == .dark ? Color.black.opacity(0.25) : Color.white.opacity(0.3)), in: .rect(cornerRadius: 14))
+        .background(.primary.opacity(0.06), in: .rect(cornerRadius: 14))
     }
 
     private var takes: some View {
@@ -250,7 +260,6 @@ private struct MisreadLevelBars: View {
 struct MisreadBarView: View {
     var model: MisreadSheetModel
     var coach: MisreadCoach
-    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         GlassEffectContainer {
@@ -264,21 +273,13 @@ struct MisreadBarView: View {
             }
             .padding(.horizontal, 12)
             .frame(height: 30)
-            .glassEffect(.misread(scheme).interactive(), in: .capsule)
+            .glassEffect(.regular.interactive(), in: .capsule)
             .contentShape(.capsule)
             .onTapGesture { coach.expand() }
         }
         .padding(8)
         .fixedSize()
         .environment(\.controlActiveState, .key)
-    }
-}
-
-extension Glass {
-    /// Clear glass with a layer in the system's shade under the text: darker in dark mode, lighter in light mode.
-    /// Plain clear glass took the window behind as its ground, and white text over a white window vanished.
-    static func misread(_ scheme: ColorScheme) -> Glass {
-        .clear.tint(scheme == .dark ? Color.black.opacity(0.55) : Color.white.opacity(0.55))
     }
 }
 

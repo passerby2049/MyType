@@ -51,7 +51,7 @@ final class MisreadKeyPanel: NSPanel {
 final class MisreadPanels {
     static let sheetWidth: CGFloat = 520
     /// Around the glass, for its shadow and the selection glow.
-    static let margin: CGFloat = 12
+    static let margin: CGFloat = 24
 
     /// Where the user dragged the sheet: its top-left corner, kept across sentences and launches.
     static let positionKey = "misreadSheetTopLeft"
