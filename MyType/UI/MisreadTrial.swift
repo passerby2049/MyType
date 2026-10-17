@@ -39,7 +39,7 @@ enum MisreadTrial {
                 coach.expand()
                 settle(0.9)
                 capture(around: coach.panelFrames.sheet, to: url.appending(path: "sheet-\(kind.rawValue)-\(suffix).png"))
-                if kind == .darkWallpaper || kind == .lightWallpaper {
+                do {
                     coach.selectForTrial()
                     settle(0.9)
                     capture(around: coach.panelFrames.sheet, to: url.appending(path: "sheet-selected-\(kind.rawValue)-\(suffix).png"))

@@ -10,6 +10,7 @@ import SwiftUI
 struct MisreadSheetView: View {
     var model: MisreadSheetModel
     var coach: MisreadCoach
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         GlassEffectContainer(spacing: 10) {
@@ -26,7 +27,7 @@ struct MisreadSheetView: View {
             }
             .padding(16)
             .frame(width: MisreadPanels.sheetWidth, alignment: .leading)
-            .glassEffect(.clear, in: .rect(cornerRadius: 24))
+            .glassEffect(.misread(scheme), in: .rect(cornerRadius: 24))
             .overlay {
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
                     .strokeBorder(Theme.accent.opacity(model.selected ? 0.9 : 0), lineWidth: 1.5)
@@ -80,7 +81,7 @@ struct MisreadSheetView: View {
                 .help("读正确的整句")
         }
         .padding(10)
-        .glassEffect(.clear.tint(.primary.opacity(0.04)), in: .rect(cornerRadius: 14))
+        .glassEffect(.clear.tint(scheme == .dark ? Color.black.opacity(0.25) : Color.white.opacity(0.3)), in: .rect(cornerRadius: 14))
     }
 
     private var takes: some View {
@@ -249,6 +250,7 @@ private struct MisreadLevelBars: View {
 struct MisreadBarView: View {
     var model: MisreadSheetModel
     var coach: MisreadCoach
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         GlassEffectContainer {
@@ -262,13 +264,21 @@ struct MisreadBarView: View {
             }
             .padding(.horizontal, 12)
             .frame(height: 30)
-            .glassEffect(.clear.interactive(), in: .capsule)
+            .glassEffect(.misread(scheme).interactive(), in: .capsule)
             .contentShape(.capsule)
             .onTapGesture { coach.expand() }
         }
         .padding(8)
         .fixedSize()
         .environment(\.controlActiveState, .key)
+    }
+}
+
+extension Glass {
+    /// Clear glass with a layer in the system's shade under the text: darker in dark mode, lighter in light mode.
+    /// Plain clear glass took the window behind as its ground, and white text over a white window vanished.
+    static func misread(_ scheme: ColorScheme) -> Glass {
+        .clear.tint(scheme == .dark ? Color.black.opacity(0.55) : Color.white.opacity(0.55))
     }
 }
 
