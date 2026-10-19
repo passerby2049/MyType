@@ -299,21 +299,7 @@ final class VoiceInputManager {
                     )
                 }
 
-                let polishResult: String?
-                do {
-                    polishResult = try await withThrowingTaskGroup(of: String?.self) { group in
-                        group.addTask { try await llmTask.value }
-                        group.addTask {
-                            try await Task.sleep(for: .seconds(10))
-                            return nil
-                        }
-                        let first = try await group.next() ?? nil
-                        group.cancelAll()
-                        return first
-                    }
-                } catch {
-                    polishResult = nil
-                }
+                let polishResult = await Self.value(of: llmTask, within: 10)
 
                 let llmTime = Date().timeIntervalSince(llmStart)
                 try Task.checkCancellation()

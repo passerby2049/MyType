@@ -126,6 +126,10 @@ actor ClaudeCodeVoicePolishSession {
         proc.currentDirectoryURL = claudeCodeScratchDir("MyTypeClaudeVoicePolish")
         var environment = claudeCodeEnvironment()
         environment["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] = "1"
+        // Since 2.1.302 each turn ends with a model-written summary, and the
+        // result waits for it: +3–4 s a turn, once 12 s (measured 10/19).
+        // Off, the summary is the reply itself and comes with it.
+        environment["CLAUDE_CODE_CLASSIFIER_SUMMARY"] = "0"
         proc.environment = environment
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()

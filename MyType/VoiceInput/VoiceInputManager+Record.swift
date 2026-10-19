@@ -1,6 +1,7 @@
 // Abstract:
 // The parts of VoiceInputManager around a dictation rather than in it:
-// typing the last one again, the timing line, and saving the record.
+// typing the last one again, the timing line, saving the record, and the
+// polish deadline.
 // Split out so VoiceInputManager.swift stays under 500 lines.
 
 import AppKit
@@ -12,6 +13,29 @@ private let logger = Logger(
 )
 
 extension VoiceInputManager {
+    /// The task's value, or nil when it fails or isn't done within
+    /// `seconds` — returned at the deadline. A task group awaiting
+    /// `task.value` waited for the task anyway (cancelling the group doesn't
+    /// reach an unstructured task), so a 25 s polish held the pill 25 s and
+    /// then typed the raw text (10/19).
+    static func value<T: Sendable>(of task: Task<T, Error>, within seconds: Double) async -> T? {
+        let resumed = OSAllocatedUnfairLock(initialState: false)
+        return await withCheckedContinuation { continuation in
+            let finish: @Sendable (T?) -> Void = { value in
+                let first = resumed.withLock { done in
+                    defer { done = true }
+                    return !done
+                }
+                if first { continuation.resume(returning: value) }
+            }
+            Task { finish(try? await task.value) }
+            Task {
+                try? await Task.sleep(for: .seconds(seconds))
+                finish(nil)
+            }
+        }
+    }
+
     /// ⌃⌥V and the menu: type the last dictation again where the user is.
     func retypeLast() {
         guard let last = VoiceInputStore.shared.records.max(by: { $0.createdAt < $1.createdAt }) else { return }
