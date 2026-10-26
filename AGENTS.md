@@ -53,6 +53,10 @@ MyType/
 - **Data directory**: `~/Library/Application Support/MyType/VoiceInput/`
 - **Entitlements**: `com.apple.security.device.audio-input` required for microphone permission dialog. App Sandbox is OFF (needed for CGEventTap accessibility).
 
+## UI
+
+Avoid unnecessary secondary labels and descriptions. Let the layout do the explaining.
+
 ## Code Style
 
 - SwiftUI views: prefer computed properties (`var xxx: some View`) over inline code in `body`.
